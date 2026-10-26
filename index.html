@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Seans</title>
+<meta name="description" content="Kişisel film ve dizi arşivi, sana özel öneriler.">
+<meta name="theme-color" content="#170a0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Seans">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://api.themoviedb.org">
+<link rel="preconnect" href="https://image.tmdb.org">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Figtree:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body data-mode="movie">
+<div class="app">
+  <header class="topbar">
+    <div class="brand" aria-label="Seans">
+      <span class="brand-word">SEANS</span>
+      <span class="brand-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    </div>
+    <div class="mode" role="tablist" aria-label="Film ya da dizi">
+      <span class="mode-thumb" aria-hidden="true"></span>
+      <button role="tab" class="mode-btn" data-act="mode" data-mode="movie" id="mode-movie">Film</button>
+      <button role="tab" class="mode-btn" data-act="mode" data-mode="tv" id="mode-tv">Dizi</button>
+    </div>
+    <button class="icon-btn" data-act="settings" aria-label="Ayarlar" id="btn-settings"></button>
+  </header>
+  <main id="view" tabindex="-1"></main>
+  <nav class="tabbar" aria-label="Bölümler">
+    <button class="tab" data-act="go" data-view="home" id="tab-home"></button>
+    <button class="tab" data-act="go" data-view="search" id="tab-search"></button>
+    <button class="tab" data-act="go" data-view="archive" id="tab-archive"></button>
+    <button class="tab" data-act="go" data-view="stats" id="tab-stats"></button>
+  </nav>
+</div>
+<div id="sheet-root"></div>
+<div id="toasts" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
