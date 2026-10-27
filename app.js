@@ -41,10 +41,57 @@ const CRITERIA = {
   tv: [['story', 'Senaryo'], ['acting', 'Oyunculuk'], ['visual', 'Görsellik'], ['music', 'Müzik'], ['pace', 'Tempo'], ['impact', 'Duygusal etki'], ['rewatch', 'Tekrar izlenirlik'], ['binge', 'Bağımlılık'], ['consistency', 'Tutarlılık'], ['finale', 'Final']],
 };
 const CRIT_LABEL = Object.fromEntries([...CRITERIA.tv]);
-const TAGS = ['Kafa yoran', 'Hafif', 'Nöbet sonrası', 'Birlikte izlenir', 'Ağlattı', 'Güldürdü', 'Görsel şölen', 'Gerdi', 'Klasik', 'Abartılmış'];
+const TAGS = ['Kafa yoran', 'Hafif', 'Nöbet sonrası', 'Birlikte izlenir', 'Ağlattı', 'Güldürdü', 'Görsel şölen', 'Gerdi', 'Romantik', 'Karanlık', 'Distopya', 'Klasik', 'Abartılmış'];
 const WORDS = ['', 'Zaman kaybı', 'Çok kötü', 'Kötü', 'Zayıf', 'Vasat', 'İdare eder', 'İyi', 'Çok iyi', 'Harika', 'Başyapıt'];
 const STATUS = { want: 'İzleyeceğim', watching: 'İzliyorum', done: 'İzledim', dropped: 'Yarıda bıraktım', dismissed: 'İlgilenmiyorum' };
 const MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+/* Ruh hali butonları. Her buton üç kaynaktan beslenir:
+   kw: TMDB anahtar kelimeleri (adla aranır, bulunamayan atlanır)
+   tag: senin puanlama etiketin; o etiketi koyup 7+ verdiğin yapımlar tohum olur (en güçlü sinyal)
+   seeds: hiç etiketin yokken kullanılan başlangıç listesi ("Ad|Yıl", TMDB'de aranır)
+   strong: tek başına belirleyici tür (ör. Romantik türü), genres: zayıf ipucu */
+const MOODS = {
+  mind: { label: 'Kafa yakan', tag: 'Kafa yoran',
+    kw: ['twist ending', 'plot twist', 'nonlinear timeline', 'unreliable narrator', 'time loop', 'dream', 'alternate reality', 'memory loss', 'amnesia', 'parallel universe', 'surrealism', 'mindfuck', 'psychological thriller', 'mind control', 'identity crisis', 'time travel'],
+    genres: { movie: [9648, 878, 53], tv: [9648, 10765] },
+    seeds: {
+      movie: ['Memento|2000', 'Inception|2010', 'The Prestige|2006', 'Fight Club|1999', 'Donnie Darko|2001', 'Mulholland Drive|2001', 'Oldboy|2003', 'Enemy|2013', 'Coherence|2013', 'Primer|2004', 'Shutter Island|2010', 'Predestination|2014', 'Triangle|2009', 'The Machinist|2004', 'Eternal Sunshine of the Spotless Mind|2004', 'Perfect Blue|1997', 'Being John Malkovich|1999', 'Synecdoche, New York|2008'],
+      tv: ['Dark|2017', 'Severance|2022', 'Westworld|2016', 'Mr. Robot|2015', 'Twin Peaks|1990', 'Russian Doll|2019', 'Black Mirror|2011', 'Legion|2017', 'Maniac|2018', 'The Leftovers|2014'] } },
+  dystopia: { label: 'Distopya', tag: 'Distopya',
+    kw: ['dystopia', 'post-apocalyptic future', 'totalitarianism', 'surveillance', 'authoritarianism', 'apocalypse', 'dystopian society', 'government control', 'police state', 'overpopulation'],
+    genres: { movie: [878], tv: [10765] },
+    seeds: {
+      movie: ['Children of Men|2006', 'Brazil|1985', 'Gattaca|1997', 'Snowpiercer|2013', 'The Lobster|2015', 'Never Let Me Go|2010', 'Blade Runner|1982', 'Equilibrium|2002', 'V for Vendetta|2005', 'Minority Report|2002', 'Mad Max: Fury Road|2015', 'Her|2013'],
+      tv: ['Black Mirror|2011', "The Handmaid's Tale|2017", 'Years and Years|2019', 'Silo|2023', '3%|2016'] } },
+  emo: { label: 'Duygusal', tag: 'Ağlattı',
+    kw: ['tearjerker', 'grief', 'loss of loved one', 'terminal illness', 'dying and death', 'bittersweet', 'melancholy', 'coming of age', 'father son relationship', 'mother daughter relationship', 'unrequited love'],
+    genres: { movie: [18, 10749], tv: [18] } },
+  romance: { label: 'Romantik', tag: 'Romantik',
+    kw: ['romance', 'love', 'lovers', 'love affair', 'forbidden love', 'unrequited love', 'soulmates', 'falling in love'],
+    genres: { movie: [10749], tv: [18] }, strong: { movie: [10749] } },
+  tense: { label: 'Gerilimli', tag: 'Gerdi',
+    kw: ['suspense', 'cat and mouse', 'survival', 'kidnapping', 'serial killer', 'hostage', 'manhunt', 'claustrophobia', 'heist', 'conspiracy'],
+    genres: { movie: [53, 80], tv: [80, 9648] } },
+  dark: { label: 'Karanlık', tag: 'Karanlık',
+    kw: ['neo-noir', 'nihilism', 'revenge', 'moral ambiguity', 'psychopath', 'corruption', 'existentialism', 'depression', 'violence', 'film noir'],
+    genres: { movie: [80, 53, 27, 18], tv: [80, 18] } },
+  light: { label: 'Hafif', tag: 'Hafif',
+    kw: ['feel-good', 'lighthearted', 'road trip', 'buddy comedy', 'quirky', 'friendship', 'heartwarming', 'comedy of errors'],
+    genres: { movie: [35, 10751, 16], tv: [35, 10751] }, strong: { movie: [35], tv: [35] } },
+  shift: { label: 'Nöbet sonrası', tag: 'Nöbet sonrası',
+    kw: ['feel-good', 'lighthearted', 'heartwarming', 'slice of life', 'quirky', 'friendship', 'cozy'],
+    genres: { movie: [35, 16, 10751], tv: [35, 16] }, strong: { movie: [35, 16], tv: [35, 16] } },
+  visual: { label: 'Görsel şölen', tag: 'Görsel şölen',
+    kw: ['epic', 'space', 'fantasy world', 'surreal', 'dreamlike', 'stylized', 'spectacle', 'cinematography', 'colorful', 'desert'],
+    genres: { movie: [878, 14, 12, 16], tv: [10765, 16] } },
+};
+const VOTES = [[0, 'Fark etmez'], [6.5, '6.5+'], [7, '7+'], [7.5, '7.5+'], [8, '8+']];
+const RUNTIMES = { movie: [['any', 'Fark etmez'], ['s90', '90 dk altı'], ['s120', '2 saat altı'], ['l120', '2 saat üstü']], tv: [['any', 'Fark etmez'], ['s30', '30 dk altı'], ['s60', '1 saat altı']] };
+const RT_MAP = { s90: { lte: 90 }, s105: { lte: 105 }, s120: { lte: 120 }, l120: { gte: 120 }, s30: { lte: 30 }, s60: { lte: 60 } };
+const ERAS = [['any', 'Fark etmez'], ['y2015', '2015 sonrası'], ['y2000', '2000 sonrası'], ['c1999', '1999 öncesi'], ['c1979', '1980 öncesi']];
+const ERA_MAP = { y2015: { from: 2015 }, y2000: { from: 2000 }, c1999: { to: 1999 }, c1979: { to: 1979 } };
+const ORIGINS = [['all', 'Hepsi'], ['tr', 'Yerli'], ['foreign', 'Yabancı']];
+const DEFAULT_Q = () => ({ moods: [], like: null, minVote: 0, runtime: 'any', era: 'any', origin: 'all', mine: false });
 const LEVELS = [[0, 'Figüran'], [60, 'Seyirci'], [200, 'Sinefil Adayı'], [450, 'Sinefil'], [900, 'Eleştirmen'], [1600, 'Yönetmen Koltuğu'], [3000, 'Efsane']];
 
 const ICONS = {
@@ -74,6 +121,7 @@ const ICONS = {
   external: '<path d="M14 4.5h5.5V10M19.5 4.5 11 13M18 14v5a.5.5 0 0 1-.5.5h-12A.5.5 0 0 1 5 19V7a.5.5 0 0 1 .5-.5h5"/>',
   shuffle: '<path d="M4 7h3.5c4.5 0 4.5 10 9 10H20M4 17h3.5c1.6 0 2.6-1.3 3.4-3M14 10c.8-1.7 1.8-3 3.4-3H20M17.5 4.5 20 7l-2.5 2.5M17.5 14.5 20 17l-2.5 2.5"/>',
   minus: '<path d="M5 12h14"/>',
+  sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
   trash: '<path d="M5 7h14M10 7V4.5h4V7M7 7l1 13h8l1-13"/>',
 };
 const icon = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[n] || ''}</svg>`;
@@ -99,7 +147,7 @@ function lsGet(k, fb) { try { const v = localStorage.getItem(k); return v == nul
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } }
 
 const S = {
-  db: { items: {}, settings: { cross: true, rateMode: 'detailed', mode: 'movie' }, meta: { recWatched: 0, badges: [] } },
+  db: { items: {}, settings: { cross: true, rateMode: 'detailed', mode: 'movie', platforms: [], query: {} }, meta: { recWatched: 0, badges: [] } },
   view: 'home',
   meta: new Map(),
   recs: { movie: null, tv: null },
@@ -184,7 +232,7 @@ function normalize(type, d) {
   const prov = d['watch/providers'] && d['watch/providers'].results && d['watch/providers'].results.TR;
   const vids = (d.videos && d.videos.results) || [];
   const trailer = vids.find(v => v.site === 'YouTube' && v.type === 'Trailer') || vids.find(v => v.site === 'YouTube');
-  const pmap = l => (l || []).map(p => ({ name: p.provider_name, logo: p.logo_path }));
+  const pmap = l => (l || []).map(p => ({ id: p.provider_id, name: p.provider_name, logo: p.logo_path }));
   return {
     key: type + ':' + d.id, type, id: d.id,
     title: (isM ? d.title : d.name) || '', original: (isM ? d.original_title : d.original_name) || '',
@@ -353,7 +401,7 @@ function preScore(c, P) {
   let g = 0, gn = 0;
   for (const x of c.genres) { const e = P.W.get('g' + x.id); if (e) { g += e.w; gn++; } }
   let s = gn ? g / gn : 0;
-  s += Math.min(0.6, c.src.reduce((a, x) => a + Math.max(0, (x.score - P.mean) / 2.5) * 0.35, 0));
+  s += Math.min(0.6, c.src.filter(x => typeof x.score === 'number').reduce((a, x) => a + Math.max(0, (x.score - P.mean) / 2.5) * 0.35, 0));
   s += ((c.vote || 6.5) - 6.8) * 0.12;
   if (c.want) s += 0.15;
   return s;
@@ -373,7 +421,7 @@ function fullScore(m, P, c) {
   let kw = 0, kn = 0; const kr = [];
   for (const k of m.keywords || []) { const e = P.W.get('k' + k.id); if (e) { kw += e.w; kn++; if (e.w > 0.1) kr.push(k.name); } }
   const kws = kn ? (kw / Math.sqrt(kn)) * 0.5 : 0;
-  const src = c ? c.src : [];
+  const src = c ? c.src.filter(x => typeof x.score === 'number') : [];
   const srcS = Math.min(0.6, src.reduce((a, x) => a + Math.max(0, (x.score - P.mean) / 2.5) * 0.3, 0));
   const q = ((m.vote || 6.5) - 6.8) * 0.12;
   const total = genre * 0.9 + ppl + kws + srcS + q + (c && c.want ? 0.1 : 0);
@@ -389,42 +437,196 @@ function fullScore(m, P, c) {
   if (!reasons.length) reasons.push('Zevk profilinle genel olarak uyumlu');
   return { match, total, reasons: reasons.slice(0, 3) };
 }
+/* ---- Ruh hali ve filtre yardımcıları ---- */
+function getQ(t = mode()) {
+  const qs = S.db.settings.query || (S.db.settings.query = {});
+  qs[t] = Object.assign(DEFAULT_Q(), qs[t] || {});
+  return qs[t];
+}
+const filterCount = Q => (Q.minVote ? 1 : 0) + (Q.runtime !== 'any' ? 1 : 0) + (Q.era !== 'any' ? 1 : 0) + (Q.origin !== 'all' ? 1 : 0) + (Q.mine ? 1 : 0);
+function filterParams(type, Q, plats) {
+  const p = {};
+  if (Q.minVote) p['vote_average.gte'] = Q.minVote;
+  const rt = RT_MAP[Q.runtime];
+  if (rt) { if (rt.lte) p['with_runtime.lte'] = rt.lte; if (rt.gte) p['with_runtime.gte'] = rt.gte; }
+  const e = ERA_MAP[Q.era], f = type === 'movie' ? 'primary_release_date' : 'first_air_date';
+  if (e) { if (e.from) p[f + '.gte'] = e.from + '-01-01'; if (e.to) p[f + '.lte'] = e.to + '-12-31'; }
+  if (Q.origin === 'tr') p.with_original_language = 'tr';
+  if (Q.mine && plats.length) { p.with_watch_providers = plats.map(x => x.id).join('|'); p.watch_region = 'TR'; p.with_watch_monetization_types = 'flatrate'; }
+  return p;
+}
+function passList(m, Q) {
+  if (Q.minVote && !(m.vote >= Q.minVote)) return false;
+  const e = ERA_MAP[Q.era], y = +m.year;
+  if (e && y) { if (e.from && y < e.from) return false; if (e.to && y > e.to) return false; }
+  if (Q.origin === 'tr' && m.lang && m.lang !== 'tr') return false;
+  if (Q.origin === 'foreign' && m.lang === 'tr') return false;
+  return true;
+}
+function passDetail(m, Q, plats) {
+  if (!passList(m, Q)) return false;
+  const rt = RT_MAP[Q.runtime];
+  if (rt && m.runtime) { if (rt.lte && m.runtime > rt.lte) return false; if (rt.gte && m.runtime < rt.gte) return false; }
+  if (Q.mine && plats.length) {
+    const ids = new Set(plats.map(p => p.id)), names = new Set(plats.map(p => p.name));
+    if (!(m.providers && m.providers.flat.some(p => ids.has(p.id) || names.has(p.name)))) return false;
+  }
+  return true;
+}
+async function resolveKeywords(names) {
+  const out = await runLimited(names.map(n => async () => {
+    const ck = 'kw:' + n, hit = cacheGet(ck);
+    if (hit) return hit.id ? hit : null;
+    const d = await tmdb('/search/keyword', { query: n, language: null });
+    const r = (d.results || []).find(x => String(x.name).toLowerCase() === n.toLowerCase());
+    const v = r ? { id: r.id, name: r.name } : { id: 0 };
+    cachePut(ck, v);
+    return v.id ? v : null;
+  }), 4);
+  return out.filter(Boolean);
+}
+async function resolveSeed(type, spec) {
+  const [title, year] = spec.split('|');
+  const ck = `seed:${type}:${spec}`, hit = cacheGet(ck);
+  if (hit) return hit.id ? remember(hit) : null;
+  const d = await tmdb(`/search/${type}`, type === 'movie' ? { query: title, year } : { query: title, first_air_date_year: year });
+  const r = (d.results || [])[0];
+  const m = r ? fromList(type, r) : null;
+  cachePut(ck, m || { id: 0 });
+  return m ? remember(m) : null;
+}
+// Bir adayın seçilen ruh hallerine ne kadar uyduğu (0 – 1.5) ve nedenleri
+function moodRelevance(m, c, moods, kwMaps, type, Q) {
+  const per = [], reasons = [];
+  moods.forEach((md, i) => {
+    const hits = (m.keywords || []).filter(k => kwMaps[i] && kwMaps[i].has(k.id)).map(k => k.name);
+    let v = Math.min(1, hits.length / 2) * 0.9;
+    const tagSrc = c.src.filter(x => x.moodIdx === i && x.tag).sort((a, b) => b.score - a.score)[0];
+    const stSrc = c.src.find(x => x.moodIdx === i && x.starter);
+    if (tagSrc) v += 0.6; else if (stSrc) v += 0.35;
+    if (c.starterOf.includes(i)) v += 0.5;
+    const sg = md.strong && md.strong[type], gs = md.genres[type] || [];
+    const gids = (m.genres || []).map(g => g.id);
+    const strongHit = !!(sg && gids.some(g => sg.includes(g)));
+    if (strongHit) v += 0.8; else if (gids.some(g => gs.includes(g))) v += 0.15;
+    per.push(Math.min(1.5, v));
+    if (hits.length) reasons.push(`<b>${esc(md.label)}</b>: ${esc(hits.slice(0, 3).join(', '))}`);
+    else if (strongHit) reasons.push(`<b>${esc(md.label)}</b> türünde`);
+    if (tagSrc) reasons.push(`"${esc(md.tag)}" dediğin <b>${esc(tagSrc.title)}</b> (${tagSrc.score}) ile bağlantılı`);
+    else if (c.starterOf.includes(i)) reasons.push(`${esc(md.label)} klasiklerinden`);
+    else if (stSrc) reasons.push(`${esc(md.label)} klasiği <b>${esc(stSrc.title)}</b> ile bağlantılı`);
+  });
+  let likeB = 0;
+  if (Q.like && c.src.some(x => x.like)) { likeB = 0.7; reasons.unshift(`<b>${esc(Q.like.title)}</b> ile benzer`); }
+  const avgv = per.length ? per.reduce((a, b) => a + b, 0) / per.length : 0;
+  const minv = per.length ? Math.min(...per) : 1;
+  return { rel: (per.length ? minv * 0.5 + avgv * 0.5 : 0) + likeB, min: minv, reasons };
+}
+
 async function recommend(type) {
+  const Q = JSON.parse(JSON.stringify(getQ(type)));
+  if (Q.moods.includes('shift') && Q.runtime === 'any') Q.runtime = type === 'movie' ? 's105' : 's30';
+  const moodMode = Q.moods.length > 0 || !!Q.like;
   const P = buildProfile(type);
-  if (!P.own.length && !(P.cross > 0 && P.other.length)) return { list: [], P, empty: true };
-  const cap = Math.min(5, Math.max(1, P.nEff));
+  if (!moodMode && !P.own.length && !(P.cross > 0 && P.other.length)) return { list: [], P, empty: true, q: Q };
+  const cap = moodMode ? 5 : Math.min(5, Math.max(1, P.nEff));
   const lib = S.db.items, shown = S.recShown[type];
   const log = recLog(), now = Date.now();
   const isRecent = k => !!(log[k] && now - log[k] < RECENT_MS);
+  const plats = S.db.settings.platforms || [];
+  const fp = filterParams(type, Q, plats);
   const C = new Map();
-  const addC = (m, src) => {
+  const addC = (m, src, starterOf) => {
     const li = lib[m.key];
     if ((li && li.status !== 'want') || shown.has(m.key)) return;
+    if (!passList(m, Q)) return;
     let c = C.get(m.key);
-    if (!c) { c = Object.assign({}, m, { src: [], want: !!(li && li.status === 'want') }); C.set(m.key, c); }
+    if (!c) { c = Object.assign({}, m, { src: [], want: !!(li && li.status === 'want'), starterOf: [] }); C.set(m.key, c); }
     if (src) c.src.push(src);
+    if (starterOf != null) c.starterOf.push(starterOf);
   };
   const tasks = [];
-  // Her turda farklı tohumlar, farklı sayfalar ve bazen "benzer" listesi: havuz her seferinde değişir
-  const seeds = shuffle(P.own.filter(i => userScore(i) >= Math.max(7, P.mean)).sort((a, b) => userScore(b) - userScore(a)).slice(0, 25)).slice(0, 6);
-  for (const s of seeds) {
-    const ep = rand(3) === 0 ? 'similar' : 'recommendations';
-    tasks.push(() => tmdb(`/${type}/${s.id}/${ep}`, { page: 1 + rand(2) }).then(d => (d.results || []).slice(0, 20).forEach(r => addC(fromList(type, r), { title: s.title, score: userScore(s) }))));
-  }
-  const topG = [...P.W.entries()].filter(([f, e]) => f[0] === 'g' && e.w > 0.05).sort((a, b) => b[1].w - a[1].w).slice(0, 3).map(([f]) => f.slice(1));
   const minVotes = type === 'movie' ? 600 : 250;
-  const disc = params => () => tmdb(`/discover/${type}`, Object.assign({ sort_by: 'vote_average.desc', 'vote_count.gte': minVotes, page: 1 + rand(3) }, params)).then(d => (d.results || []).forEach(r => addC(fromList(type, r))));
-  if (topG.length) { tasks.push(disc({ with_genres: topG.join('|') })); tasks.push(disc({ with_genres: topG[0], sort_by: 'popularity.desc', page: 1 + rand(2) })); }
-  if (!seeds.length && !topG.length) tasks.push(() => tmdb(`/${type}/top_rated`, { page: 1 + rand(5) }).then(d => (d.results || []).forEach(r => addC(fromList(type, r)))));
-  itemsOf(type).filter(i => i.status === 'want').forEach(i => addC(Object.assign({}, i, { overview: '' })));
-  const res = await runLimited(tasks, 4);
-  if (!C.size) {
-    if (tasks.length && res.every(x => x === undefined || x === null)) throw new Error('NET');
-    return { list: [], P, noCands: true };
+  const moodVotes = type === 'movie' ? 150 : 60;
+  const disc = (params, src) => () => tmdb(`/discover/${type}`, Object.assign({ sort_by: 'vote_average.desc', 'vote_count.gte': minVotes, page: 1 + rand(3) }, fp, params)).then(d => (d.results || []).forEach(r => addC(fromList(type, r), src)));
+  // Her turda farklı tohum, farklı sayfa ve bazen "benzer" listesi: havuz her seferinde değişir
+  const recsOf = (id, src, ep) => () => tmdb(`/${type}/${id}/${ep || (rand(3) === 0 ? 'similar' : 'recommendations')}`, { page: 1 + rand(2) }).then(d => (d.results || []).slice(0, 20).forEach(r => addC(fromList(type, r), src)));
+  const moods = Q.moods.map(id => MOODS[id]).filter(Boolean);
+  let kwMaps = [];
+  if (moodMode) {
+    kwMaps = await Promise.all(moods.map(md => resolveKeywords(md.kw).catch(() => []).then(ks => new Map(ks.map(k => [k.id, k.name])))));
+    moods.forEach((md, i) => {
+      const ids = [...kwMaps[i].keys()].join('|');
+      if (ids) {
+        tasks.push(disc({ with_keywords: ids, 'vote_count.gte': moodVotes }, { moodIdx: i, kw: true }));
+        tasks.push(disc({ with_keywords: ids, sort_by: 'popularity.desc', page: 1 + rand(2) }, { moodIdx: i, kw: true }));
+        moods.forEach((mj, j) => { const sg = mj.strong && mj.strong[type]; if (j !== i && sg) tasks.push(disc({ with_keywords: ids, with_genres: sg.join('|'), 'vote_count.gte': moodVotes }, { moodIdx: i, kw: true })); });
+      }
+      const gs = (md.strong && md.strong[type]) || md.genres[type] || [];
+      if (gs.length) tasks.push(disc({ with_genres: gs.join('|'), 'vote_count.gte': moodVotes * 2 }, { moodIdx: i, genre: true }));
+      // Senin etiketin: o etiketi koyup 7+ verdiğin yapımlar
+      const tagged = shuffle(Object.values(lib).filter(it => it.type === type && (it.tags || []).includes(md.tag) && userScore(it) >= 7)).slice(0, 3);
+      tagged.forEach(s => tasks.push(recsOf(s.id, { title: s.title, score: userScore(s), moodIdx: i, tag: true })));
+      // Etiketin azken başlangıç listesi
+      const starters = (md.seeds && md.seeds[type]) || [];
+      if (tagged.length < 3 && starters.length) {
+        shuffle(starters.slice()).slice(0, 4).forEach(st => tasks.push(async () => {
+          const m = await resolveSeed(type, st); if (!m) return;
+          addC(m, null, i);
+          await recsOf(m.id, { title: m.title, moodIdx: i, starter: true }, 'recommendations')();
+        }));
+      }
+    });
+    if (Q.like) {
+      const L = Q.like, ls = userScore(lib[L.key]);
+      tasks.push(recsOf(L.id, { title: L.title, score: ls, like: true }, 'recommendations'));
+      tasks.push(recsOf(L.id, { title: L.title, score: ls, like: true }, 'similar'));
+    }
+  } else {
+    const seeds = shuffle(P.own.filter(i => userScore(i) >= Math.max(7, P.mean)).sort((a, b) => userScore(b) - userScore(a)).slice(0, 25)).slice(0, 6);
+    seeds.forEach(s => tasks.push(recsOf(s.id, { title: s.title, score: userScore(s) })));
+    const topG = [...P.W.entries()].filter(([f, e]) => f[0] === 'g' && e.w > 0.05).sort((a, b) => b[1].w - a[1].w).slice(0, 3).map(([f]) => f.slice(1));
+    if (topG.length) { tasks.push(disc({ with_genres: topG.join('|') })); tasks.push(disc({ with_genres: topG[0], sort_by: 'popularity.desc', page: 1 + rand(2) })); }
+    if (filterCount(Q)) tasks.push(disc({}));
+    if (!seeds.length && !topG.length) tasks.push(() => tmdb(`/${type}/top_rated`, Object.assign({ page: 1 + rand(5) })).then(d => (d.results || []).forEach(r => addC(fromList(type, r)))));
   }
-  const pre = [...C.values()].map(c => ({ c, s: preScore(c, P) + (Math.random() - 0.5) * 0.3 - (isRecent(c.key) ? 1 : recPenalty(c.key, log, now)) })).sort((a, b) => b.s - a.s).slice(0, Math.max(20, cap * 4));
-  const scored = await runLimited(pre.map(({ c }) => async () => { const m = await getDetails(type, c.id); return Object.assign({ m, c }, fullScore(m, P, c)); }), 5);
-  const ok = scored.filter(Boolean).filter(x => { const li = lib[x.m.key]; return !(li && li.status !== 'want'); }).sort((a, b) => b.total - a.total);
+  itemsOf(type).filter(i => i.status === 'want').forEach(i => addC(Object.assign({}, i, { overview: '' })));
+  const res = await runLimited(tasks.map(t => () => t().then(() => true)), 4);
+  if (!C.size) {
+    if (tasks.length && res.every(x => x !== true)) throw new Error('NET');
+    return { list: [], P, noCands: true, q: Q, moodMode };
+  }
+  const preMood = c => {
+    if (!moodMode) return 0;
+    let s = 0;
+    moods.forEach((md, i) => {
+      if (c.src.some(x => x.moodIdx === i && x.kw)) s += 0.5;
+      if (c.src.some(x => x.moodIdx === i && x.tag)) s += 0.5;
+      if (c.src.some(x => x.moodIdx === i && x.starter)) s += 0.3;
+      if (c.starterOf.includes(i)) s += 0.5;
+      const sg = md.strong && md.strong[type];
+      if (sg && (c.genres || []).some(g => sg.includes(g.id))) s += 0.5;
+    });
+    if (Q.like && c.src.some(x => x.like)) s += 0.6;
+    return s;
+  };
+  const pre = [...C.values()].map(c => ({ c, s: preScore(c, P) * (moodMode ? 0.5 : 1) + preMood(c) + (Math.random() - 0.5) * 0.3 - (isRecent(c.key) ? 1 : recPenalty(c.key, log, now)) }))
+    .sort((a, b) => b.s - a.s).slice(0, moodMode || filterCount(Q) ? Math.max(24, cap * 5) : Math.max(20, cap * 4));
+  const scored = await runLimited(pre.map(({ c }) => async () => {
+    const m = await getDetails(type, c.id);
+    if (!passDetail(m, Q, plats)) return null;
+    const base = fullScore(m, P, c);
+    if (!moodMode) return Object.assign({ m, c }, base);
+    const mr = moodRelevance(m, c, moods, kwMaps, type, Q);
+    const total = base.total * 0.6 + mr.rel * 1.2;
+    const match = clamp(Math.round(100 / (1 + Math.exp(-2.2 * (total - 0.3)))), 35, 99);
+    const baseR = base.reasons.filter(r => !(Q.like && r.includes(esc(Q.like.title))) && r !== 'Zevk profilinle genel olarak uyumlu');
+    return { m, c, total, match, minRel: mr.min, reasons: [...mr.reasons, ...baseR].slice(0, 3) };
+  }), 5);
+  let ok = scored.filter(Boolean).filter(x => { const li = lib[x.m.key]; return !(li && li.status !== 'want'); });
+  // Ruh haline zayıf uyanlar, yeterince güçlü aday varsa elenir
+  if (moods.length) { const strong = ok.filter(x => x.minRel >= 0.2); if (strong.length >= Math.min(cap, 3)) ok = strong; }
+  ok.sort((a, b) => b.total - a.total);
   // Son 1 günde gösterilenler dışarıda kalır; aday yetmezse onlardan tamamlanır
   const fresh = ok.filter(x => !isRecent(x.m.key));
   let list = pickDiverse(fresh, cap, log);
@@ -432,7 +634,7 @@ async function recommend(type) {
   list.sort((a, b) => b.total - a.total);
   list.forEach(x => { shown.add(x.m.key); S.recKeys.add(x.m.key); log[x.m.key] = now; });
   pruneRecLog(); save();
-  return { list, P, cap };
+  return { list, P, cap, q: Q, moodMode };
 }
 
 /* Önerilen yapımların kaydı: uygulama kapanıp açılsa da hatırlanır */
@@ -462,7 +664,7 @@ function pickDiverse(arr, n, log) {
     while (i < pool.length - 1 && (r -= pool[i].w) > 0) i++;
     const p = pool.splice(i, 1)[0]; out.push(p.x);
     const g0 = p.x.m.genres && p.x.m.genres[0] && p.x.m.genres[0].id;
-    const srcs = new Set(((p.x.c && p.x.c.src) || []).map(s => s.title));
+    const srcs = new Set(((p.x.c && p.x.c.src) || []).filter(s => s.title).map(s => s.title));
     for (const q of pool) {
       if (g0 && q.x.m.genres && q.x.m.genres[0] && q.x.m.genres[0].id === g0) q.w *= 0.6;
       if (((q.x.c && q.x.c.src) || []).some(s => srcs.has(s.title))) q.w *= 0.7;
@@ -576,9 +778,10 @@ function vHome() {
     <p class="eyebrow">Bu gece · ${T.label}</p>
     <h1 class="hero-title">${t === 'movie' ? 'Hangi film?' : 'Hangi dizi?'}</h1>
     <p class="hero-sub">${rated ? `${rated} puanına bakıp sana özel ${T.one} seçerim.` : `Önce birkaç ${T.one} puanla, sana göre seçmeye başlayayım.`}</p>
+    ${queryBar(t)}
     <button class="btn-suggest" data-act="suggest" ${loading ? 'disabled' : ''}>
       <span class="bs-main">${loading ? 'Seçiliyor' : 'Öner'}</span>
-      <span class="bs-sub">${rated ? 'sana özel 5 seçim' : 'veri bekleniyor'}</span>
+      <span class="bs-sub" id="bs-sub">${esc(suggestSub(t))}</span>
     </button>
     <div class="bulbs" aria-hidden="true"></div>
   </section>
@@ -594,6 +797,65 @@ function vHome() {
     ${want.length ? `<div class="shelf">${want.map(i => `<button class="shelf-item" data-act="detail" data-key="${i.key}">${poster(i, 'w185', 'shelf-img')}<span>${esc(i.title)}</span></button>`).join('')}</div>`
       : `<p class="empty-line">Henüz boş. Bir ${T.one} beğenince <b>İzleyeceğim</b> de, burada dursun.</p>`}
   </section>`;
+}
+function suggestSub(t) {
+  const Q = getQ(t);
+  const parts = [...Q.moods.map(id => MOODS[id] && MOODS[id].label), Q.like ? '≈ ' + Q.like.title : null].filter(Boolean);
+  if (parts.length) return parts.join(' + ');
+  return itemsOf(t).some(i => userScore(i) != null) ? 'sana özel 5 seçim' : 'veri bekleniyor';
+}
+function queryBar(t) {
+  const Q = getQ(t), fc = filterCount(Q);
+  return `<div class="moods" role="group" aria-label="Ruh hali">${Object.entries(MOODS).map(([id, md]) => `<button class="mood ${Q.moods.includes(id) ? 'on' : ''}" data-act="mood" data-mood="${id}" aria-pressed="${Q.moods.includes(id)}">${esc(md.label)}</button>`).join('')}</div>
+    <div class="q-row">
+      ${Q.like ? `<span class="q-chip like on"><button data-act="open-like">${icon('compass')}<span>≈ ${esc(Q.like.title)}</span></button><button class="q-x" data-act="like-clear" aria-label="Benzer seçimini kaldır">${icon('x')}</button></span>`
+        : `<button class="q-chip" data-act="open-like">${icon('compass')}Şuna benzer</button>`}
+      <button class="q-chip ${fc ? 'on' : ''}" data-act="open-filters">${icon('sliders')}Filtreler${fc ? ` · ${fc}` : ''}</button>
+    </div>`;
+}
+function filtersHTML(t) {
+  const Q = getQ(t), plats = S.db.settings.platforms || [];
+  const grp = (title, key, opts) => `<section class="fgroup"><h3>${title}</h3><div class="fchips">${opts.map(([v, l]) => `<button class="fchip ${String(Q[key]) === String(v) ? 'on' : ''}" data-act="flt" data-k="${key}" data-v="${v}">${l}</button>`).join('')}</div></section>`;
+  return `<h2 class="sheet-title">Filtreler</h2>
+    <p class="muted">${TYPES[t].plural} için. Seçimlerin hatırlanır, ruh hali butonlarıyla birlikte çalışır.</p>
+    ${grp('En düşük TMDB puanı', 'minVote', VOTES)}
+    ${grp(t === 'movie' ? 'Süre' : 'Bölüm süresi', 'runtime', RUNTIMES[t])}
+    ${grp('Dönem', 'era', ERAS)}
+    ${grp('Köken', 'origin', ORIGINS)}
+    <section class="fgroup"><h3>Platform</h3>${plats.length
+      ? `<label class="switch-row"><span><b>Sadece platformlarımda olanlar</b><small>${esc(plats.map(p => p.name).join(', '))}</small></span><input type="checkbox" id="flt-mine" class="switch" ${Q.mine ? 'checked' : ''}></label>`
+      : `<p class="muted">Önce abone olduğun platformları seç.</p><button class="btn-ghost sm" data-act="settings">Platformları seç</button>`}</section>
+    <div class="row"><button class="btn-ghost" data-act="flt-clear">Temizle</button><button class="btn-primary" data-act="flt-done">Tamam</button></div>`;
+}
+function likeItems(t, q) {
+  const s = (q || '').toLocaleLowerCase('tr');
+  return itemsOf(t).filter(i => ['done', 'watching', 'dropped'].includes(i.status))
+    .filter(i => !s || (i.title + ' ' + (i.original || '')).toLocaleLowerCase('tr').includes(s))
+    .sort((a, b) => (userScore(b) ?? -1) - (userScore(a) ?? -1)).slice(0, 60);
+}
+function likeList(items, t) {
+  if (!items.length) return `<p class="empty-line">Arşivinde uygun ${TYPES[t].one} yok. Önce izlediklerini puanla.</p>`;
+  return `<ul class="results">${items.map(i => `<li class="res"><button class="res-main" data-act="like-pick" data-key="${i.key}">${poster(i, 'w92', 'res-img')}<span class="res-text"><b>${esc(i.title)}</b><small>${esc(metaLine(i))}</small>${userScore(i) != null && i.rating ? `<em class="chip">Puanın ${userScore(i)}</em>` : ''}</span></button></li>`).join('')}</ul>`;
+}
+function likeHTML(t) {
+  return `<h2 class="sheet-title">Şuna benzer</h2>
+    <p class="muted">Arşivinden bir ${TYPES[t].one} seç, öneriler ona benzeyenlerden gelsin. Ruh hali butonlarıyla birleştirebilirsin: örneğin bir distopya + Romantik.</p>
+    <div class="search-box sm">${icon('search')}<input id="like-q" type="search" placeholder="Arşivinde ara" autocomplete="off"></div>
+    <div id="like-list">${likeList(likeItems(t, ''), t)}</div>`;
+}
+async function loadPlatforms(w) {
+  const el = $('#plat-list', w); if (!el) return;
+  if (!getKey()) { el.innerHTML = '<span class="muted">Önce TMDB anahtarını kaydet.</span>'; return; }
+  try {
+    let list = cacheGet('providers:TR');
+    if (!list) {
+      const d = await tmdb('/watch/providers/movie', { watch_region: 'TR' });
+      list = (d.results || []).map(p => ({ id: p.provider_id, name: p.provider_name, logo: p.logo_path, pr: (p.display_priorities && p.display_priorities.TR) ?? p.display_priority ?? 99 })).sort((a, b) => a.pr - b.pr).slice(0, 30);
+      cachePut('providers:TR', list);
+    }
+    const sel = new Set((S.db.settings.platforms || []).map(p => p.id));
+    el.innerHTML = list.map(p => `<button class="plat ${sel.has(p.id) ? 'on' : ''}" data-act="plat" data-id="${p.id}" data-name="${esc(p.name)}" aria-pressed="${sel.has(p.id)}">${p.logo ? `<img src="${img(p.logo, 'w92')}" alt="" loading="lazy">` : ''}${esc(p.name)}</button>`).join('');
+  } catch (e) { el.innerHTML = `<span class="muted">${errText(e)}</span>`; }
 }
 function contRow(i) {
   const p = i.progress || { s: 1, e: 1 };
@@ -612,13 +874,15 @@ function vRecs() {
   if (R.loading) return `<div class="projector"><div class="reel"><i></i><i></i><i></i><i></i><i></i></div><p class="proj-text" id="proj-text">Arşivin taranıyor…</p></div>`;
   if (R.error) return `<div class="errbox">${icon('x')}<p>${R.error}</p></div>`;
   if (R.empty) return `<div class="nudge"><p>Henüz hiç ${T.one} puanlamadın. Önermem için birkaç tane yeter.</p><button class="btn-primary" data-act="quick">${icon('bolt')}Hızlı Puanla'yı aç</button></div>`;
-  if (!R.list.length) return `<div class="nudge"><p>Yeni aday bulamadım. Biraz daha puanlarsan havuz genişler, ya da tekrar dene.</p><button class="btn-ghost" data-act="suggest">${icon('shuffle')}Tekrar dene</button></div>`;
+  const strict = R.q && (R.moodMode || filterCount(R.q));
+  if (!R.list.length) return `<div class="nudge"><p>${strict ? 'Bu seçimlerle aday bulamadım. Filtreleri gevşetmeyi ya da başka bir ruh hali denemeyi öneririm.' : 'Yeni aday bulamadım. Biraz daha puanlarsan havuz genişler, ya da tekrar dene.'}</p><button class="btn-ghost" data-act="suggest">${icon('shuffle')}Tekrar dene</button></div>`;
   const fewer = R.list.length < 5;
+  const label = R.q && R.moodMode ? [...R.q.moods.map(id => MOODS[id] && MOODS[id].label), R.q.like ? '≈ ' + R.q.like.title : null].filter(Boolean).join(' + ') : '';
   return `<div class="recs-head">
-      <h2 class="sec-title">Senin için ${R.list.length} ${T.one}</h2>
+      <h2 class="sec-title">${label ? `${esc(label)} · ${R.list.length}` : `Senin için ${R.list.length} ${T.one}`}</h2>
       <button class="btn-ghost sm" data-act="suggest">${icon('shuffle')}${fewer ? 'Tekrar' : '5 tane daha'}</button>
     </div>
-    ${fewer ? `<p class="fewer">Şimdilik ${R.list.length} öneri çıkarabildim. Puanladıkça sayı ve isabet artacak.</p>` : ''}
+    ${fewer ? `<p class="fewer">${strict ? `Bu seçimlerle ${R.list.length} öneri çıkarabildim. Filtreleri gevşetirsen havuz genişler.` : `Şimdilik ${R.list.length} öneri çıkarabildim. Puanladıkça sayı ve isabet artacak.`}</p>` : ''}
     <div class="tickets">${R.list.map(ticket).join('')}</div>`;
 }
 function ticket(x, i) {
@@ -888,6 +1152,7 @@ function detailHTML(m, ctx, loading) {
     <div class="d-links">
       ${m.trailer ? `<a class="btn-ghost" href="https://www.youtube.com/watch?v=${encodeURIComponent(m.trailer)}" target="_blank" rel="noopener">${icon('play')}Fragman</a>` : ''}
       <a class="btn-ghost" href="https://www.themoviedb.org/${t}/${m.id}" target="_blank" rel="noopener">${icon('external')}TMDB</a>
+      <button class="btn-ghost" data-act="like-this" data-key="${m.key}">${icon('compass')}Buna benzer öner</button>
     </div>
     ${it ? `<button class="link danger" data-act="remove" data-key="${m.key}">${icon('trash')}Arşivden kaldır</button><div class="confirm" id="rm-confirm" hidden><p>Bu kayıt, puanı ve notuyla birlikte silinecek.</p><div class="row"><button class="btn-ghost" data-act="remove-cancel">Vazgeç</button><button class="btn-danger" data-act="remove-yes" data-key="${m.key}">Sil</button></div></div>` : ''}
   `}`;
@@ -1053,13 +1318,18 @@ function deckAdvance(w, dir) {
 function openSettings() {
   const n = Object.keys(S.db.items).length;
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-  openSheet(`
+  const w = openSheet(`
     <h2 class="sheet-title">Ayarlar</h2>
     <section class="set">
       <h3>TMDB anahtarı</h3>
       <p class="muted">Sadece bu cihazda saklanır. API Key ya da API Read Access Token yapıştırabilirsin.</p>
       <div class="key-row"><input type="password" id="api-key" value="${esc(getKey())}" autocomplete="off" spellcheck="false" placeholder="Anahtarı yapıştır"><button class="btn-primary sm" data-act="key-save">Kaydet</button></div>
       <p class="key-status muted" id="key-status">${getKey() ? 'Kayıtlı bir anahtar var.' : 'Henüz anahtar yok.'}</p>
+    </section>
+    <section class="set">
+      <h3>Platformların</h3>
+      <p class="muted">Abone olduğun platformları seç. Öner'deki filtrelerde "Sadece platformlarımda olanlar" ile kullanılır.</p>
+      <div class="plats" id="plat-list"><span class="muted">Yükleniyor…</span></div>
     </section>
     <section class="set">
       <h3>Öneri motoru</h3>
@@ -1078,6 +1348,7 @@ function openSettings() {
     </section>
     <p class="fine tmdb-note">Bu uygulama TMDB API'sini kullanır, ancak TMDB tarafından onaylanmamış ya da sertifikalandırılmamıştır. Platform bilgileri JustWatch kaynaklıdır.</p>
   `, 'settings');
+  loadPlatforms(w);
 }
 function openWelcome() {
   const w = openSheet(`
@@ -1214,6 +1485,33 @@ const ACT = {
     if (S.view === 'home' && mode() === t) refreshRecs();
   },
   'quick': () => openQuick(),
+  'mood': el => {
+    const Q = getQ(), id = el.dataset.mood, on = Q.moods.includes(id);
+    if (!on && Q.moods.length >= 3) { toast('En fazla 3 ruh hali seçebilirsin.'); return; }
+    Q.moods = on ? Q.moods.filter(x => x !== id) : [...Q.moods, id];
+    save();
+    el.classList.toggle('on', !on); el.setAttribute('aria-pressed', String(!on));
+    const s = $('#bs-sub'); if (s) s.textContent = suggestSub(mode());
+  },
+  'open-filters': () => openSheet(filtersHTML(mode()), 'filters'),
+  'flt': el => { const Q = getQ(), k = el.dataset.k; Q[k] = k === 'minVote' ? +el.dataset.v : el.dataset.v; save(); setSheet(el.closest('.sheet-wrap'), filtersHTML(mode())); },
+  'flt-clear': el => { Object.assign(getQ(), { minVote: 0, runtime: 'any', era: 'any', origin: 'all', mine: false }); save(); setSheet(el.closest('.sheet-wrap'), filtersHTML(mode())); },
+  'flt-done': el => closeSheet(el.closest('.sheet-wrap')),
+  'open-like': () => openSheet(likeHTML(mode()), 'likepick'),
+  'like-pick': el => { const m = metaOf(el.dataset.key); if (!m) return; getQ(m.type).like = { key: m.key, id: m.id, title: m.title }; save(); closeSheet(el.closest('.sheet-wrap')); },
+  'like-clear': () => { getQ().like = null; save(); render(); },
+  'like-this': el => {
+    const m = metaOf(el.dataset.key); if (!m) return;
+    S.db.settings.mode = m.type; getQ(m.type).like = { key: m.key, id: m.id, title: m.title }; save();
+    S.view = 'home'; while (sheets.length) closeSheet(); render(); window.scrollTo({ top: 0 });
+    ACT.suggest();
+  },
+  'plat': el => {
+    const id = +el.dataset.id, name = el.dataset.name, L = S.db.settings.platforms || (S.db.settings.platforms = []);
+    const i = L.findIndex(p => p.id === id);
+    if (i >= 0) L.splice(i, 1); else L.push({ id, name });
+    save(); el.classList.toggle('on', i < 0); el.setAttribute('aria-pressed', String(i < 0));
+  },
   'ep-next': el => stepEpisode(el.dataset.key, 1),
   'ep-prev': el => stepEpisode(el.dataset.key, -1),
   'remove': el => { const c = $('#rm-confirm', el.closest('.sheet')); if (c) c.hidden = false; },
@@ -1261,6 +1559,7 @@ document.addEventListener('input', e => {
   const el = e.target;
   if (el.id === 'q') doSearch(el.value);
   else if (el.id === 'arch-q') { S.archive.q = el.value; const g = $('#arch-grid'); if (g) { const t = mode(); render(); const n = $('#arch-q'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } } }
+  else if (el.id === 'like-q') { const w = el.closest('.sheet-wrap'); $('#like-list', w).innerHTML = likeList(likeItems(mode(), el.value), mode()); }
   else if (el.classList.contains('sub-range')) {
     const w = el.closest('.sheet-wrap'); const k = el.dataset.k; w._state.sub[k] = +el.value;
     const row = el.closest('.sub'); row.classList.add('is-set'); $('output', row).textContent = el.value;
@@ -1271,6 +1570,7 @@ document.addEventListener('change', e => {
   if (el.id === 'arch-sort') { S.archive.sort = el.value; render(); }
   else if (el.id === 'rate-date') el.closest('.sheet-wrap')._state.date = el.value;
   else if (el.id === 'rate-nodate') { const w = el.closest('.sheet-wrap'); w._state.noDate = el.checked; $('#rate-date', w).disabled = el.checked; }
+  else if (el.id === 'flt-mine') { getQ().mine = el.checked; save(); }
   else if (el.id === 'cross') { S.db.settings.cross = el.checked; save(); S.recs = { movie: null, tv: null }; toast(el.checked ? 'Harmanlama açık.' : 'Harmanlama kapalı: film ve dizi önerileri tamamen ayrı.'); }
   else if (el.id === 'import' && el.files && el.files[0]) { importData(el.files[0]); el.value = ''; }
   else if (el.id === 'prog-s') { const it = S.db.items[el.dataset.key]; if (it) { upsert(it, { progress: { s: +el.value, e: 1 } }); refreshAll(); } }
@@ -1289,6 +1589,8 @@ function init() {
   const tabs = { home: ['home', 'Seans'], search: ['search', 'Ara'], archive: ['archive', 'Arşiv'], stats: ['stats', 'Profil'] };
   for (const [v, [ic, l]] of Object.entries(tabs)) $('#tab-' + v).innerHTML = `${icon(ic)}<span>${l}</span>`;
   loadDB();
+  // Ruh hali ve "şuna benzer" o anki istek: her açılışta sıfırlanır. Filtreler kalır.
+  for (const t of ['movie', 'tv']) { const q = getQ(t); q.moods = []; q.like = null; }
   if (!S.db.meta.badges || !S.db.meta.badges.length) S.db.meta.badges = earnedBadges();
   render();
   if (!getKey()) openWelcome();
