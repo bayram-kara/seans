@@ -394,6 +394,8 @@ async function recommend(type) {
   if (!P.own.length && !(P.cross > 0 && P.other.length)) return { list: [], P, empty: true };
   const cap = Math.min(5, Math.max(1, P.nEff));
   const lib = S.db.items, shown = S.recShown[type];
+  const log = recLog(), now = Date.now();
+  const isRecent = k => !!(log[k] && now - log[k] < RECENT_MS);
   const C = new Map();
   const addC = (m, src) => {
     const li = lib[m.key];
@@ -403,8 +405,12 @@ async function recommend(type) {
     if (src) c.src.push(src);
   };
   const tasks = [];
-  const seeds = shuffle(P.own.filter(i => userScore(i) >= Math.max(7, P.mean)).sort((a, b) => userScore(b) - userScore(a)).slice(0, 12)).slice(0, 5);
-  for (const s of seeds) tasks.push(() => tmdb(`/${type}/${s.id}/recommendations`).then(d => (d.results || []).slice(0, 20).forEach(r => addC(fromList(type, r), { title: s.title, score: userScore(s) }))));
+  // Her turda farklı tohumlar, farklı sayfalar ve bazen "benzer" listesi: havuz her seferinde değişir
+  const seeds = shuffle(P.own.filter(i => userScore(i) >= Math.max(7, P.mean)).sort((a, b) => userScore(b) - userScore(a)).slice(0, 25)).slice(0, 6);
+  for (const s of seeds) {
+    const ep = rand(3) === 0 ? 'similar' : 'recommendations';
+    tasks.push(() => tmdb(`/${type}/${s.id}/${ep}`, { page: 1 + rand(2) }).then(d => (d.results || []).slice(0, 20).forEach(r => addC(fromList(type, r), { title: s.title, score: userScore(s) }))));
+  }
   const topG = [...P.W.entries()].filter(([f, e]) => f[0] === 'g' && e.w > 0.05).sort((a, b) => b[1].w - a[1].w).slice(0, 3).map(([f]) => f.slice(1));
   const minVotes = type === 'movie' ? 600 : 250;
   const disc = params => () => tmdb(`/discover/${type}`, Object.assign({ sort_by: 'vote_average.desc', 'vote_count.gte': minVotes, page: 1 + rand(3) }, params)).then(d => (d.results || []).forEach(r => addC(fromList(type, r))));
@@ -416,12 +422,53 @@ async function recommend(type) {
     if (tasks.length && res.every(x => x === undefined || x === null)) throw new Error('NET');
     return { list: [], P, noCands: true };
   }
-  const pre = [...C.values()].map(c => ({ c, s: preScore(c, P) })).sort((a, b) => b.s - a.s).slice(0, Math.max(12, cap * 3));
+  const pre = [...C.values()].map(c => ({ c, s: preScore(c, P) + (Math.random() - 0.5) * 0.3 - (isRecent(c.key) ? 1 : recPenalty(c.key, log, now)) })).sort((a, b) => b.s - a.s).slice(0, Math.max(20, cap * 4));
   const scored = await runLimited(pre.map(({ c }) => async () => { const m = await getDetails(type, c.id); return Object.assign({ m, c }, fullScore(m, P, c)); }), 5);
   const ok = scored.filter(Boolean).filter(x => { const li = lib[x.m.key]; return !(li && li.status !== 'want'); }).sort((a, b) => b.total - a.total);
-  const list = ok.slice(0, cap);
-  list.forEach(x => { shown.add(x.m.key); S.recKeys.add(x.m.key); });
+  // Son 1 günde gösterilenler dışarıda kalır; aday yetmezse onlardan tamamlanır
+  const fresh = ok.filter(x => !isRecent(x.m.key));
+  let list = pickDiverse(fresh, cap, log);
+  if (list.length < cap) list = list.concat(pickDiverse(ok.filter(x => !list.includes(x)), cap - list.length, log));
+  list.sort((a, b) => b.total - a.total);
+  list.forEach(x => { shown.add(x.m.key); S.recKeys.add(x.m.key); log[x.m.key] = now; });
+  pruneRecLog(); save();
   return { list, P, cap };
+}
+
+/* Önerilen yapımların kaydı: uygulama kapanıp açılsa da hatırlanır */
+// İlk 1 gün hiç önerilmez. 1. günden 10. güne kadar ceza doğrusal azalır, 10. günde sıfırlanır.
+const DAY = 864e5, RECENT_MS = 1 * DAY, RECOVER_MS = 10 * DAY, MAX_PENALTY = 0.4;
+function recLog() { if (!S.db.meta.recLog) S.db.meta.recLog = {}; return S.db.meta.recLog; }
+function recPenalty(k, log, now) {
+  const t = log[k]; if (!t) return 0;
+  const age = now - t;
+  if (age >= RECOVER_MS) return 0;
+  if (age < RECENT_MS) return MAX_PENALTY;
+  return MAX_PENALTY * (RECOVER_MS - age) / (RECOVER_MS - RECENT_MS);
+}
+function pruneRecLog() {
+  const L = recLog(), now = Date.now();
+  for (const k of Object.keys(L)) if (now - L[k] >= RECOVER_MS) delete L[k];
+}
+/* En iyi adaylardan ağırlıklı rastgele seçim: puanı yüksek olan daha sık çıkar ama her seferinde aynı 5 gelmez.
+   Seçilenle aynı ana türden ya da aynı kaynaktan gelenlerin şansı düşürülür, liste çeşitlenir. */
+function pickDiverse(arr, n, log) {
+  const now = Date.now();
+  const pool = arr.slice(0, Math.max(n * 4, 16)).map(x => ({ x, w: Math.exp((x.total - recPenalty(x.m.key, log, now)) / 0.3) }));
+  const out = [];
+  while (out.length < n && pool.length) {
+    const sum = pool.reduce((a, p) => a + p.w, 0);
+    let r = Math.random() * sum, i = 0;
+    while (i < pool.length - 1 && (r -= pool[i].w) > 0) i++;
+    const p = pool.splice(i, 1)[0]; out.push(p.x);
+    const g0 = p.x.m.genres && p.x.m.genres[0] && p.x.m.genres[0].id;
+    const srcs = new Set(((p.x.c && p.x.c.src) || []).map(s => s.title));
+    for (const q of pool) {
+      if (g0 && q.x.m.genres && q.x.m.genres[0] && q.x.m.genres[0].id === g0) q.w *= 0.6;
+      if (((q.x.c && q.x.c.src) || []).some(s => srcs.has(s.title))) q.w *= 0.7;
+    }
+  }
+  return out;
 }
 
 /* ============ Hızlı puanlama destesi ============ */

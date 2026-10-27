@@ -1,6 +1,6 @@
 /* Seans servis çalışanı: uygulama dosyalarını önbellekte tutar, afişleri saklar.
    Uygulama dosyaları ağdan önce denenir; böylece güncellemeler hemen gelir. */
-const VERSION = 'seans-v1';
+const VERSION = 'seans-v2';
 const SHELL = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 const IMG_CACHE = 'seans-img-v1';
 
