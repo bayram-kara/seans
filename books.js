@@ -465,6 +465,17 @@ async function importBookFile() {
   } catch (e) { toast('Liste yüklenemedi. İnternet bağlantını kontrol edip tekrar dene.', 'err'); }
 }
 
+/* Tek seferlik: 1000Kitap'tan içe aktarılan puanları sil (kullanıcı isteği, 31.10.2026).
+   İçe aktarılan puanların hepsi aynı damgayı taşır; uygulamada sonradan verilen puanlara dokunulmaz. */
+const IMPORT_RATED_AT = 1761939000000;
+function migrateDrop1000kRatings() {
+  if (S.db.meta.drop1000kRatings) return;
+  let n = 0;
+  for (const it of bookItems()) if (it.src === '1000kitap' && it.rating && it.rating.ratedAt === IMPORT_RATED_AT) { delete it.rating; n++; }
+  S.db.meta.drop1000kRatings = true; save();
+  if (n) setTimeout(() => toast(`1000Kitap'tan gelen ${n} puan silindi. Hızlı Puanla ile yeniden puanlayabilirsin.`), 800);
+}
+
 /* ---- Eylemler (app.js ACT'e eklenir) ---- */
 const BOOK_ACT = {
   'book-import': el => { el.disabled = true; importBookFile(); },
