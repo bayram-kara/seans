@@ -27,6 +27,7 @@ async function runLimited(tasks, limit) {
 const TYPES = {
   movie: { label: 'Film', plural: 'Filmler', one: 'film', acc: 'filmi' },
   tv: { label: 'Dizi', plural: 'Diziler', one: 'dizi', acc: 'diziyi' },
+  book: { label: 'Kitap', plural: 'Kitaplar', one: 'kitap', acc: 'kitabı' },
 };
 const GENRES = {
   movie: { 28: 'Aksiyon', 12: 'Macera', 16: 'Animasyon', 35: 'Komedi', 80: 'Suç', 99: 'Belgesel', 18: 'Dram', 10751: 'Aile', 14: 'Fantastik', 36: 'Tarih', 27: 'Korku', 10402: 'Müzik', 9648: 'Gizem', 10749: 'Romantik', 878: 'Bilim Kurgu', 10770: 'TV Filmi', 53: 'Gerilim', 10752: 'Savaş', 37: 'Vahşi Batı' },
@@ -39,11 +40,14 @@ const MAP_T2M = { 10759: [28, 12], 10765: [878, 14], 10768: [10752], 16: [16], 3
 const CRITERIA = {
   movie: [['story', 'Senaryo'], ['acting', 'Oyunculuk'], ['visual', 'Görsellik'], ['music', 'Müzik'], ['pace', 'Tempo'], ['impact', 'Duygusal etki'], ['rewatch', 'Tekrar izlenirlik']],
   tv: [['story', 'Senaryo'], ['acting', 'Oyunculuk'], ['visual', 'Görsellik'], ['music', 'Müzik'], ['pace', 'Tempo'], ['impact', 'Duygusal etki'], ['rewatch', 'Tekrar izlenirlik'], ['binge', 'Bağımlılık'], ['consistency', 'Tutarlılık'], ['finale', 'Final']],
+  book: [['plot', 'Kurgu'], ['characters', 'Karakterler'], ['style', 'Dil ve üslup'], ['flow', 'Akıcılık'], ['impact', 'Duygusal etki'], ['ideas', 'Düşündürücülük'], ['reread', 'Tekrar okurum']],
 };
-const CRIT_LABEL = Object.fromEntries([...CRITERIA.tv]);
+const CRIT_LABEL = Object.fromEntries([...CRITERIA.tv, ...CRITERIA.book]);
 const TAGS = ['Kafa yoran', 'Hafif', 'Nöbet sonrası', 'Birlikte izlenir', 'Ağlattı', 'Güldürdü', 'Görsel şölen', 'Gerdi', 'Romantik', 'Karanlık', 'Distopya', 'Klasik', 'Abartılmış'];
 const WORDS = ['', 'Zaman kaybı', 'Çok kötü', 'Kötü', 'Zayıf', 'Vasat', 'İdare eder', 'İyi', 'Çok iyi', 'Harika', 'Başyapıt'];
 const STATUS = { want: 'İzleyeceğim', watching: 'İzliyorum', done: 'İzledim', dropped: 'Yarıda bıraktım', dismissed: 'İlgilenmiyorum' };
+const stLabel = (t, s) => (t === 'book' ? STATUS_BOOK : STATUS)[s];
+const tagsFor = t => t === 'book' ? BOOK_TAGS : TAGS;
 const MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
 /* Ruh hali butonları. Her buton üç kaynaktan beslenir:
    kw: TMDB anahtar kelimeleri (adla aranır, bulunamayan atlanır)
@@ -150,14 +154,14 @@ const S = {
   db: { items: {}, settings: { cross: true, rateMode: 'detailed', mode: 'movie', platforms: [], query: {} }, meta: { recWatched: 0, badges: [] } },
   view: 'home',
   meta: new Map(),
-  recs: { movie: null, tv: null },
+  recs: { movie: null, tv: null, book: null },
   recShown: { movie: new Set(), tv: new Set() },
   recKeys: new Set(),
   deck: { movie: [], tv: [] }, boost: { movie: [], tv: [] }, deckSeen: new Set(), deckRun: 0, deckBusy: false,
   search: { q: '', res: [], loading: false, err: '' },
   archive: { status: 'all', sort: 'recent', q: '' },
 };
-const mode = () => S.db.settings.mode === 'tv' ? 'tv' : 'movie';
+const mode = () => ['tv', 'book'].includes(S.db.settings.mode) ? S.db.settings.mode : 'movie';
 
 function loadDB() {
   const d = lsGet(DB_KEY, null);
@@ -278,7 +282,7 @@ async function getDetails(type, id) {
 const metaOf = key => S.meta.get(key) || S.db.items[key] || null;
 
 /* ============ Arşiv kayıtları ============ */
-const ITEM_FIELDS = ['type', 'id', 'title', 'original', 'year', 'poster', 'backdrop', 'genres', 'people', 'cast', 'keywords', 'runtime', 'episodes', 'seasons', 'lang', 'vote'];
+const ITEM_FIELDS = ['type', 'id', 'title', 'original', 'year', 'poster', 'backdrop', 'genres', 'people', 'cast', 'keywords', 'runtime', 'episodes', 'seasons', 'lang', 'vote', 'author', 'pages', 'cover', 'olKey', 'subjects'];
 function itemFields(m) {
   const o = {};
   for (const f of ITEM_FIELDS) if (m[f] !== undefined) o[f] = m[f];
@@ -301,7 +305,7 @@ const userScore = it => it && it.rating && it.rating.overall != null ? it.rating
 const itemsOf = t => Object.values(S.db.items).filter(i => i.type === t);
 
 const enrichQ = new Set(); let enriching = false;
-function queueEnrich(k) { enrichQ.add(k); runEnrich(); }
+function queueEnrich(k) { if (k.startsWith('book:')) return; enrichQ.add(k); runEnrich(); }
 async function runEnrich() {
   if (enriching || !getKey()) return;
   enriching = true;
@@ -309,7 +313,7 @@ async function runEnrich() {
     while (enrichQ.size) {
       const k = enrichQ.values().next().value; enrichQ.delete(k);
       const it = S.db.items[k];
-      if (!it || it.rich) continue;
+      if (!it || it.rich || it.type === 'book') continue;
       try { const m = await getDetails(it.type, it.id); if (S.db.items[k]) { Object.assign(S.db.items[k], itemFields(m)); save(); } }
       catch (e) { if (e.message === 'AUTH' || e.message === 'NOKEY' || e.message === 'NET') { enrichQ.add(k); break; } }
     }
@@ -320,6 +324,7 @@ async function runEnrich() {
 function xpOf() {
   let xp = 0;
   for (const it of Object.values(S.db.items)) {
+    if (it.type === 'book') continue;
     if (it.status === 'done') xp += 10; else if (it.status === 'dropped') xp += 4; else if (it.status === 'watching') xp += 3; else if (it.status === 'want') xp += 1;
     if (it.rating && it.rating.overall != null) xp += 2;
     if (it.rating && it.rating.sub && Object.keys(it.rating.sub).length >= 4) xp += 6;
@@ -333,7 +338,7 @@ function levelOf(xp) {
   return { i, name: cur[1], xp, from: cur[0], to: nxt ? nxt[0] : null, next: nxt ? nxt[1] : null, pct: nxt ? (xp - cur[0]) / (nxt[0] - cur[0]) : 1 };
 }
 function badgeCtx() {
-  const all = Object.values(S.db.items);
+  const all = Object.values(S.db.items).filter(i => i.type !== 'book');
   const done = all.filter(i => i.status === 'done');
   const rated = all.filter(i => i.rating && i.rating.overall != null && i.vote > 0);
   return {
@@ -741,11 +746,12 @@ const setSheet = (w, html) => { const b = $('.sheet-body', w); if (b) b.innerHTM
 const errorBox = e => `<div class="errbox">${icon('x')}<p>${errText(e)}</p></div>`;
 
 function poster(m, size = 'w342', cls = '') {
+  if (m.type === 'book') return bookPoster(m, size, cls);
   return m.poster
     ? `<img class="${cls}" src="${img(m.poster, size)}" alt="" loading="lazy" decoding="async">`
     : `<div class="${cls} noposter"><span>${esc(m.title)}</span></div>`;
 }
-const metaLine = m => [m.year, (m.genres || []).map(g => g.name).filter(Boolean).slice(0, 2).join(', ')].filter(Boolean).join(' · ');
+const metaLine = m => m.type === 'book' ? bookMeta(m) : [m.year, (m.genres || []).map(g => g.name).filter(Boolean).slice(0, 2).join(', ')].filter(Boolean).join(' · ');
 
 /* ============ Görünümler ============ */
 function render() {
@@ -754,7 +760,10 @@ function render() {
   $$('.mode-btn').forEach(b => { b.setAttribute('aria-selected', String(b.dataset.mode === t)); });
   $$('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === S.view));
   const v = $('#view');
-  v.innerHTML = ({ home: vHome, search: vSearch, archive: vArchive, stats: vStats })[S.view]();
+  const tl = $('#tab-home span'); if (tl) tl.textContent = t === 'book' ? 'Kitaplık' : 'Seans';
+  const ts = $('#tab-stats span'); if (ts) ts.textContent = t === 'book' ? 'Okuma' : 'Profil';
+  const views = t === 'book' ? { home: vBookHome, search: vSearch, archive: vArchive, stats: vBookStats } : { home: vHome, search: vSearch, archive: vArchive, stats: vStats };
+  v.innerHTML = views[S.view]();
   if (S.view === 'search') { const q = $('#q'); if (q && !S.search.q) q.focus({ preventScroll: true }); }
 }
 
@@ -915,23 +924,23 @@ function refreshRecs() {
 
 function vSearch() {
   const T = TYPES[mode()];
-  return `<div class="page-head"><h1 class="page-title">Ara</h1><p class="muted">Bir ${T.one} bul, arşivine ekle ya da puanla.</p></div>
-  <div class="search-box">${icon('search')}<input id="q" type="search" placeholder="${T.label} adı yaz…" value="${esc(S.search.q)}" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"></div>
+  return `<div class="page-head"><h1 class="page-title">Ara</h1><p class="muted">Bir ${T.one} bul, ${mode() === 'book' ? 'kitaplığına' : 'arşivine'} ekle ya da puanla.</p></div>
+  <div class="search-box">${icon('search')}<input id="q" type="search" placeholder="${mode() === 'book' ? 'Kitap adı ya da yazar yaz…' : T.label + ' adı yaz…'}" value="${esc(S.search.q)}" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"></div>
   <div id="search-res">${vSearchRes()}</div>`;
 }
 function vSearchRes() {
   const s = S.search;
   if (s.loading) return `<p class="muted pad">Aranıyor…</p>`;
   if (s.err) return `<div class="errbox">${icon('x')}<p>${s.err}</p></div>`;
-  if (!s.q) return `<p class="empty-line">Türkçe ya da orijinal adıyla arayabilirsin.</p>`;
+  if (!s.q) return `<p class="empty-line">${mode() === 'book' ? 'Kitap adıyla, yazarla ya da ikisiyle birlikte arayabilirsin. Kaynak: Open Library.' : 'Türkçe ya da orijinal adıyla arayabilirsin.'}</p>`;
   if (!s.res.length) return `<p class="empty-line">"${esc(s.q)}" için sonuç yok.</p>`;
   return `<ul class="results">${s.res.map(m => {
-    const it = S.db.items[m.key]; const sc = userScore(it);
+    const it = m.type === 'book' ? bookTwin(m) : S.db.items[m.key]; const sc = userScore(it); const key = it ? it.key : m.key;
     return `<li class="res">
-      <button class="res-main" data-act="detail" data-key="${m.key}">${poster(m, 'w92', 'res-img')}
-        <span class="res-text"><b>${esc(m.title)}</b><small>${esc(metaLine(m))}</small>${it ? `<em class="chip st-${it.status}">${STATUS[it.status]}${sc != null && it.rating ? ` · ${sc}` : ''}</em>` : ''}</span>
+      <button class="res-main" data-act="detail" data-key="${key}">${poster(m, 'w92', 'res-img')}
+        <span class="res-text"><b>${esc(m.title)}</b><small>${esc(metaLine(m))}</small>${it ? `<em class="chip st-${it.status}">${stLabel(m.type, it.status)}${sc != null && it.rating ? ` · ${sc}` : ''}</em>` : ''}</span>
       </button>
-      ${it ? '' : `<div class="res-acts"><button class="btn-round" data-act="set-status" data-status="done" data-key="${m.key}" aria-label="İzledim, puanla">${icon('check')}</button><button class="btn-round" data-act="set-status" data-status="want" data-key="${m.key}" aria-label="İzleyeceğim">${icon('plus')}</button></div>`}
+      ${it ? '' : `<div class="res-acts"><button class="btn-round" data-act="set-status" data-status="done" data-key="${m.key}" aria-label="${m.type === 'book' ? 'Okudum' : 'İzledim'}, puanla">${icon('check')}</button><button class="btn-round" data-act="set-status" data-status="want" data-key="${m.key}" aria-label="${stLabel(m.type, 'want')}">${icon('plus')}</button></div>`}
     </li>`;
   }).join('')}</ul>`;
 }
@@ -943,9 +952,15 @@ function doSearch(q) {
     const seq = ++searchSeq; const t = mode();
     S.search.loading = true; S.search.err = ''; paintSearch();
     try {
-      const d = await tmdb(`/search/${t}`, { query: q.trim(), include_adult: 'false' });
-      if (seq !== searchSeq) return;
-      S.search.res = (d.results || []).slice(0, 20).map(r => remember(fromList(t, r)));
+      if (t === 'book') {
+        const res = await olSearch(q.trim());
+        if (seq !== searchSeq) return;
+        S.search.res = res.map(remember);
+      } else {
+        const d = await tmdb(`/search/${t}`, { query: q.trim(), include_adult: 'false' });
+        if (seq !== searchSeq) return;
+        S.search.res = (d.results || []).slice(0, 20).map(r => remember(fromList(t, r)));
+      }
     } catch (e) { if (seq !== searchSeq) return; S.search.err = errText(e); }
     S.search.loading = false; paintSearch();
   }, 380);
@@ -956,22 +971,24 @@ function vArchive() {
   const t = mode(), T = TYPES[t], A = S.archive;
   const all = itemsOf(t);
   const counts = s => s === 'all' ? all.filter(i => i.status !== 'dismissed').length : all.filter(i => i.status === s).length;
-  const filters = [['all', 'Tümü'], ['done', 'İzledim'], ...(t === 'tv' ? [['watching', 'İzliyorum']] : []), ['want', 'İzleyeceğim'], ['dropped', 'Yarıda'], ['dismissed', 'Geçtiklerim']];
+  const filters = t === 'book' ? [['all', 'Tümü'], ['done', 'Okudum'], ['watching', 'Okuyorum'], ['want', 'Okuyacağım'], ['dropped', 'Yarıda']]
+    : [['all', 'Tümü'], ['done', 'İzledim'], ...(t === 'tv' ? [['watching', 'İzliyorum']] : []), ['want', 'İzleyeceğim'], ['dropped', 'Yarıda'], ['dismissed', 'Geçtiklerim']];
   let list = all.filter(i => A.status === 'all' ? i.status !== 'dismissed' : i.status === A.status);
-  if (A.q) { const q = A.q.toLocaleLowerCase('tr'); list = list.filter(i => (i.title + ' ' + (i.original || '')).toLocaleLowerCase('tr').includes(q)); }
+  if (A.q) { const q = A.q.toLocaleLowerCase('tr'); list = list.filter(i => (i.title + ' ' + (i.original || '') + ' ' + (i.author || '')).toLocaleLowerCase('tr').includes(q)); }
   const sorters = {
     recent: (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
     score: (a, b) => (userScore(b) ?? -1) - (userScore(a) ?? -1) || (b.updatedAt || 0) - (a.updatedAt || 0),
-    year: (a, b) => (+b.year || 0) - (+a.year || 0),
+    year: t === 'book' ? (a, b) => (b.watchedAt || '').localeCompare(a.watchedAt || '') : (a, b) => (+b.year || 0) - (+a.year || 0),
     title: (a, b) => a.title.localeCompare(b.title, 'tr'),
+    author: (a, b) => (a.author || '').localeCompare(b.author || '', 'tr'),
   };
   list.sort(sorters[A.sort] || sorters.recent);
-  return `<div class="page-head"><h1 class="page-title">Arşiv</h1><p class="muted">${counts('done')} ${T.one} izlendi · ${counts('want')} bekliyor</p></div>
+  return `<div class="page-head"><h1 class="page-title">Arşiv</h1><p class="muted">${counts('done')} ${T.one} ${t === 'book' ? 'okundu' : 'izlendi'} · ${counts('want')} bekliyor</p></div>
   <div class="chips-row" role="tablist">${filters.map(([s, l]) => `<button class="fchip ${A.status === s ? 'on' : ''}" data-act="archive-filter" data-status="${s}">${l}<span>${counts(s)}</span></button>`).join('')}</div>
   <div class="arch-tools">
     <div class="search-box sm">${icon('search')}<input id="arch-q" type="search" placeholder="Arşivde ara" value="${esc(A.q)}" autocomplete="off"></div>
     <label class="select"><span class="sr">Sırala</span><select id="arch-sort">
-      ${[['recent', 'Son hareket'], ['score', 'Puan'], ['year', 'Yıl'], ['title', 'Ad']].map(([v, l]) => `<option value="${v}" ${A.sort === v ? 'selected' : ''}>${l}</option>`).join('')}
+      ${(t === 'book' ? [['recent', 'Son hareket'], ['score', 'Puan'], ['year', 'Okuma tarihi'], ['author', 'Yazar'], ['title', 'Ad']] : [['recent', 'Son hareket'], ['score', 'Puan'], ['year', 'Yıl'], ['title', 'Ad']]).map(([v, l]) => `<option value="${v}" ${A.sort === v ? 'selected' : ''}>${l}</option>`).join('')}
     </select></label>
   </div>
   <div id="arch-grid">${archGrid(list)}</div>`;
@@ -982,7 +999,7 @@ function archGrid(list) {
     const sc = i.rating && i.rating.overall != null ? i.rating.overall : null;
     return `<button class="tile" data-act="detail" data-key="${i.key}">${poster(i, 'w342', 'tile-img')}
       ${sc != null ? `<span class="stamp">${sc}</span>` : ''}
-      ${i.status !== 'done' ? `<span class="ribbon st-${i.status}">${i.status === 'watching' && i.progress ? `S${i.progress.s}·B${i.progress.e}` : STATUS[i.status]}</span>` : ''}
+      ${i.status !== 'done' ? `<span class="ribbon st-${i.status}">${i.status === 'watching' && i.progress ? (i.type === 'book' ? `s. ${i.progress.page || 0}` : `S${i.progress.s}·B${i.progress.e}`) : stLabel(i.type, i.status)}</span>` : ''}
       <span class="tile-t">${esc(i.title)}</span></button>`;
   }).join('')}</div>`;
 }
@@ -1100,6 +1117,7 @@ function monthsChart(ms) {
 
 /* ============ Detay ============ */
 function openDetail(key, ctx = {}) {
+  if (key.startsWith('book:')) { openBookDetail(key); return; }
   const [type, idS] = key.split(':'); const id = +idS;
   const base = metaOf(key) || { key, type, id, title: '' };
   const w = openSheet(detailHTML(base, ctx, !base.rich), 'detail');
@@ -1112,6 +1130,7 @@ function openDetail(key, ctx = {}) {
 }
 function refreshDetails() {
   for (const w of sheets) if (w.dataset.key && $('.sheet.detail', w)) {
+    if (w.dataset.book) { const m = metaOf(w.dataset.key); if (m) setSheet(w, bookDetailHTML(m)); continue; }
     const m = metaOf(w.dataset.key); if (m) setSheet(w, detailHTML(m, JSON.parse(w.dataset.ctx || '{}'), !m.rich));
   }
 }
@@ -1159,6 +1178,7 @@ function detailHTML(m, ctx, loading) {
 }
 const provLogo = p => p.logo ? `<img class="prov-logo" src="${img(p.logo, 'w92')}" alt="${esc(p.name)}" title="${esc(p.name)}" loading="lazy">` : `<span class="prov-name">${esc(p.name)}</span>`;
 function statusBar(m, it) {
+  if (m.type === 'book') return bookStatusBar(m, it);
   const st = it && it.status;
   const b = (s, label, ic) => `<button class="st ${st === s ? 'on' : ''}" data-act="set-status" data-status="${s}" data-key="${m.key}" aria-pressed="${st === s}">${icon(ic)}<span>${label}</span></button>`;
   const rated = it && it.rating;
@@ -1206,9 +1226,10 @@ function openRate(key, status = 'done') {
 }
 function rateHTML(m, s) {
   const crits = CRITERIA[m.type].filter(([k]) => k !== 'finale' || s.status === 'done');
-  const extraTags = [...s.tags].filter(x => !TAGS.includes(x));
+  const TG = tagsFor(m.type), bk = m.type === 'book';
+  const extraTags = [...s.tags].filter(x => !TG.includes(x));
   return `
-  <div class="rate-head">${poster(m, 'w185', 'rate-poster')}<div><p class="eyebrow">${s.status === 'dropped' ? 'Yarıda bıraktım' : 'İzledim'}</p><h2 class="rate-title">${esc(m.title)}</h2><p class="muted">${esc(metaLine(m))}</p></div></div>
+  <div class="rate-head">${poster(m, 'w185', 'rate-poster')}<div><p class="eyebrow">${s.status === 'dropped' ? 'Yarıda bıraktım' : bk ? 'Okudum' : 'İzledim'}</p><h2 class="rate-title">${esc(m.title)}</h2><p class="muted">${esc(metaLine(m))}</p></div></div>
   <div class="seg" role="tablist" aria-label="Puanlama türü">
     <button data-act="rate-mode" data-mode="quick" class="${s.mode === 'quick' ? 'on' : ''}" role="tab">Hızlı</button>
     <button data-act="rate-mode" data-mode="detailed" class="${s.mode === 'detailed' ? 'on' : ''}" role="tab">Detaylı</button>
@@ -1227,13 +1248,13 @@ function rateHTML(m, s) {
       <button class="sub-x" data-act="sub-clear" data-k="${k}" aria-label="${l} puanını temizle">${icon('x')}</button>
     </div>`).join('')}
     <h4 class="d-h">Etiketler</h4>
-    <div class="tags" id="tags">${[...TAGS, ...extraTags].map(x => `<button class="tag ${s.tags.has(x) ? 'on' : ''}" data-act="tag" data-tag="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    <div class="tags" id="tags">${[...TG, ...extraTags].map(x => `<button class="tag ${s.tags.has(x) ? 'on' : ''}" data-act="tag" data-tag="${esc(x)}">${esc(x)}</button>`).join('')}</div>
     <div class="tag-add"><input id="tag-new" placeholder="Kendi etiketin" maxlength="24" autocomplete="off"><button class="btn-ghost sm" data-act="tag-add">Ekle</button></div>
     <label class="note-l" for="rate-note">Not</label>
-    <textarea id="rate-note" rows="3" maxlength="800" placeholder="Aklında kalan sahne, replik ya da düşünce">${esc(s.note)}</textarea>
+    <textarea id="rate-note" rows="3" maxlength="800" placeholder="${bk ? 'Aklında kalan sahne, karakter ya da düşünce' : 'Aklında kalan sahne, replik ya da düşünce'}">${esc(s.note)}</textarea>
   </div>
   <div class="date-row">
-    <label for="rate-date">İzleme tarihi</label>
+    <label for="rate-date">${bk ? 'Bitirdiğim tarih' : 'İzleme tarihi'}</label>
     <input type="date" id="rate-date" value="${esc(s.date)}" max="${todayISO()}" ${s.noDate ? 'disabled' : ''}>
     <label class="chk"><input type="checkbox" id="rate-nodate" ${s.noDate ? 'checked' : ''}> Hatırlamıyorum</label>
   </div>
@@ -1258,6 +1279,7 @@ function saveRating(w) {
     tags: [...s.tags], note: s.note.trim(), watchedAt: s.noDate ? null : (s.date || null),
   };
   if (m.type === 'tv' && s.status === 'done') patch.progress = null;
+  if (m.type === 'book' && s.status === 'done' && m.pages) patch.progress = { page: m.pages };
   upsert(m, patch);
   if (!wasDone && s.status === 'done' && S.recKeys.has(key)) S.db.meta.recWatched = (S.db.meta.recWatched || 0) + 1;
   S.db.settings.rateMode = s.mode; save();
@@ -1451,11 +1473,14 @@ function setStatus(key, status, fromEl) {
   if (it && it.status === status && !it.rating) {
     removeItem(key);
     toast(status === 'want' ? 'Listeden çıkarıldı.' : status === 'dismissed' ? 'Tekrar önerilebilir.' : 'Kaldırıldı.');
+  } else if (status === 'watching' && m.type === 'book') {
+    upsert(m, { status, progress: (it && it.progress && it.status === 'watching') ? it.progress : { page: 0 }, startedAt: (it && it.status === 'watching' && it.startedAt) || todayISO() });
+    toast('Okuduklarına eklendi. Sayfa takibi Kitaplık\'ta.');
   } else if (status === 'watching') {
     upsert(m, { status, progress: (it && it.progress) || { s: 1, e: 1 } });
     toast('İzlediklerine eklendi. Bölüm takibi ana sayfada.');
   } else if (status === 'want') {
-    upsert(m, { status }); toast('Listene eklendi.');
+    upsert(m, { status }); toast(m.type === 'book' ? 'Okuyacaklarına eklendi.' : 'Listene eklendi.');
   } else if (status === 'dismissed') {
     upsert(m, { status }); toast('Tamam, bunu bir daha önermem.');
   }
@@ -1484,7 +1509,7 @@ const ACT = {
     clearInterval(recTicker);
     if (S.view === 'home' && mode() === t) refreshRecs();
   },
-  'quick': () => openQuick(),
+  'quick': () => mode() === 'book' ? openBookQuick() : openQuick(),
   'mood': el => {
     const Q = getQ(), id = el.dataset.mood, on = Q.moods.includes(id);
     if (!on && Q.moods.length >= 3) { toast('En fazla 3 ruh hali seçebilirsin.'); return; }
@@ -1550,6 +1575,7 @@ function addTag(w) {
   inp.value = '';
 }
 
+Object.assign(ACT, BOOK_ACT);
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   const fn = ACT[el.dataset.act]; if (!fn) return;
@@ -1571,6 +1597,8 @@ document.addEventListener('change', e => {
   else if (el.id === 'rate-date') el.closest('.sheet-wrap')._state.date = el.value;
   else if (el.id === 'rate-nodate') { const w = el.closest('.sheet-wrap'); w._state.noDate = el.checked; $('#rate-date', w).disabled = el.checked; }
   else if (el.id === 'flt-mine') { getQ().mine = el.checked; save(); }
+  else if (el.id === 'shelf-sort') { shelfPrefs().sort = el.value; save(); render(); }
+  else if (el.id === 'pg-in') setPage(el.dataset.key, +el.value);
   else if (el.id === 'cross') { S.db.settings.cross = el.checked; save(); S.recs = { movie: null, tv: null }; toast(el.checked ? 'Harmanlama açık.' : 'Harmanlama kapalı: film ve dizi önerileri tamamen ayrı.'); }
   else if (el.id === 'import' && el.files && el.files[0]) { importData(el.files[0]); el.value = ''; }
   else if (el.id === 'prog-s') { const it = S.db.items[el.dataset.key]; if (it) { upsert(it, { progress: { s: +el.value, e: 1 } }); refreshAll(); } }
@@ -1593,7 +1621,7 @@ function init() {
   for (const t of ['movie', 'tv']) { const q = getQ(t); q.moods = []; q.like = null; }
   if (!S.db.meta.badges || !S.db.meta.badges.length) S.db.meta.badges = earnedBadges();
   render();
-  if (!getKey()) openWelcome();
+  if (!getKey() && mode() !== 'book') openWelcome();
   else { Object.values(S.db.items).forEach(i => { if (!i.rich) enrichQ.add(i.key); }); runEnrich(); }
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 }

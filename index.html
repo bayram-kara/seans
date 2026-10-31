@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Seans</title>
-<meta name="description" content="Kişisel film ve dizi arşivi, sana özel öneriler.">
+<meta name="description" content="Kişisel film, dizi ve kitap arşivi.">
 <meta name="theme-color" content="#170a0f">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -27,10 +27,11 @@
       <span class="brand-word">SEANS</span>
       <span class="brand-dots" aria-hidden="true"><i></i><i></i><i></i></span>
     </div>
-    <div class="mode" role="tablist" aria-label="Film ya da dizi">
+    <div class="mode" role="tablist" aria-label="Film, dizi ya da kitap">
       <span class="mode-thumb" aria-hidden="true"></span>
       <button role="tab" class="mode-btn" data-act="mode" data-mode="movie" id="mode-movie">Film</button>
       <button role="tab" class="mode-btn" data-act="mode" data-mode="tv" id="mode-tv">Dizi</button>
+      <button role="tab" class="mode-btn" data-act="mode" data-mode="book" id="mode-book">Kitap</button>
     </div>
     <button class="icon-btn" data-act="settings" aria-label="Ayarlar" id="btn-settings"></button>
   </header>
@@ -44,6 +45,7 @@
 </div>
 <div id="sheet-root"></div>
 <div id="toasts" role="status" aria-live="polite"></div>
+<script src="books.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

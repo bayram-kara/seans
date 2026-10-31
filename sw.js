@@ -1,7 +1,7 @@
 /* Seans servis çalışanı: uygulama dosyalarını önbellekte tutar, afişleri saklar.
    Uygulama dosyaları ağdan önce denenir; böylece güncellemeler hemen gelir. */
-const VERSION = 'seans-v3';
-const SHELL = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
+const VERSION = 'seans-v4';
+const SHELL = ['./', './index.html', './styles.css', './books.js', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 const IMG_CACHE = 'seans-img-v1';
 
 self.addEventListener('install', e => {
@@ -22,7 +22,7 @@ self.addEventListener('fetch', e => {
     }).catch(() => caches.match(req).then(r => r || caches.match('./index.html'))));
     return;
   }
-  if (url.hostname === 'image.tmdb.org') {
+  if (url.hostname === 'image.tmdb.org' || url.hostname === 'covers.openlibrary.org') {
     e.respondWith(caches.open(IMG_CACHE).then(async c => {
       const hit = await c.match(req);
       if (hit) return hit;
