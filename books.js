@@ -475,6 +475,14 @@ function migrateDrop1000kRatings() {
   S.db.meta.drop1000kRatings = true; save();
   if (n) setTimeout(() => toast(`1000Kitap'tan gelen ${n} puan silindi. Hızlı Puanla ile yeniden puanlayabilirsin.`), 800);
 }
+// Tek seferlik: 1000Kitap beğenilerini (♥) de sil (kullanıcı isteği, 31.10.2026)
+function migrateDrop1000kLikes() {
+  if (S.db.meta.drop1000kLikes) return;
+  let n = 0;
+  for (const it of bookItems()) if (it.src === '1000kitap' && it.liked) { it.liked = false; n++; }
+  S.db.meta.drop1000kLikes = true; save();
+  if (n) setTimeout(() => toast(`1000Kitap'tan gelen ${n} beğeni silindi.`), 1600);
+}
 
 /* ---- Eylemler (app.js ACT'e eklenir) ---- */
 const BOOK_ACT = {

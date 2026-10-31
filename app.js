@@ -1624,6 +1624,7 @@ function init() {
   // Ruh hali ve "şuna benzer" o anki istek: her açılışta sıfırlanır. Filtreler kalır.
   for (const t of ['movie', 'tv']) { const q = getQ(t); q.moods = []; q.like = null; }
   migrateDrop1000kRatings();
+  migrateDrop1000kLikes();
   if (!S.db.meta.badges || !S.db.meta.badges.length) S.db.meta.badges = earnedBadges();
   render();
   if (!getKey() && mode() !== 'book') openWelcome();
