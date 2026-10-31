@@ -25,7 +25,69 @@ function bookPoster(m, size, cls) {
   if (m.cover) return `<img class="${cls}" src="${bookCoverUrl(m.cover, /w(342|500|780)/.test(size) ? 'L' : 'M')}" alt="" loading="lazy" decoding="async">`;
   return `<div class="${cls} noposter bgen" style="--bc:${authorColor(m.author)}"><b>${esc(m.title)}</b><small>${esc(m.author || '')}</small></div>`;
 }
-const bookMeta = m => [m.author, m.pages ? m.pages + ' sayfa' : ''].filter(Boolean).join(' · ');
+const bookMeta = m => [m.author, m.publisher, m.pages ? m.pages + ' sayfa' : ''].filter(Boolean).join(' · ');
+const LANGS = { tur: 'Türkçe', eng: 'İngilizce', ger: 'Almanca', fre: 'Fransızca', spa: 'İspanyolca', ita: 'İtalyanca', rus: 'Rusça', por: 'Portekizce', dut: 'Felemenkçe', ara: 'Arapça', per: 'Farsça', heb: 'İbranice', jpn: 'Japonca', chi: 'Çince', pol: 'Lehçe', gre: 'Yunanca' };
+
+/* ---- Baskılar: Open Library bir eserin bütün baskılarını tek kayıtta toplar; Türkçe baskı bu listeden seçilir ---- */
+async function olEditions(olKey) {
+  const ck = 'ed:' + olKey, hit = cacheGet(ck);
+  if (hit) return hit.list;
+  const d = await olGet(`${olKey}/editions.json?limit=200`);
+  const list = (d.entries || []).map(e => {
+    const lang = ((e.languages || [])[0] || {}).key ? e.languages[0].key.split('/').pop() : '';
+    const yr = String(e.publish_date || '').match(/\d{4}/);
+    return {
+      key: e.key, title: [e.title, e.subtitle].filter(Boolean).join(': '), lang,
+      publisher: (e.publishers || [])[0] || '', year: yr ? yr[0] : '',
+      pages: e.number_of_pages || null, cover: (e.covers || []).find(c => c > 0) || null,
+    };
+  }).filter(e => e.title);
+  list.sort((a, b) => (b.lang === 'tur') - (a.lang === 'tur') || (b.cover ? 1 : 0) - (a.cover ? 1 : 0) || (b.year || '').localeCompare(a.year || ''));
+  cachePut(ck, { list });
+  return list;
+}
+const turEditions = list => (list || []).filter(e => e.lang === 'tur');
+// Seçilen baskının adı, yayınevi, sayfa sayısı ve kapağı kitaba işlenir
+function applyEdition(key, ed, quiet) {
+  const patch = { title: ed.title, publisher: ed.publisher || '', edKey: ed.key, edLang: ed.lang };
+  if (ed.pages) patch.pages = ed.pages;
+  if (ed.cover) patch.cover = ed.cover;
+  const it = S.db.items[key], m = S.meta.get(key);
+  if (m) Object.assign(m, patch);
+  if (it) upsert(it, patch);
+  if (!quiet) toast('Baskı bilgileri güncellendi.');
+  refreshAll();
+}
+// Kitaplığa eklenen kitabın henüz baskısı seçilmediyse ve Türkçe baskısı varsa onu kullan
+async function autoTurkish(key) {
+  const it = S.db.items[key];
+  if (!it || it.edKey || !it.olKey || it.src === '1000kitap') return;
+  try {
+    const tr = turEditions(await olEditions(it.olKey));
+    if (tr.length && !S.db.items[key].edKey) { applyEdition(key, tr[0], true); toast('Türkçe baskı bilgileri kullanıldı. Değiştirmek için detayda Baskı seç.'); }
+  } catch { /* baskı bulunamazsa eser bilgisi kalır */ }
+}
+function editionsHTML(key, list) {
+  const cur = (S.db.items[key] || metaOf(key) || {}).edKey;
+  if (!list.length) return `<h2 class="sheet-title">Baskılar</h2><p class="empty-line">Bu kitabın baskı listesi Open Library'de yok. Bilgileri Düzenle ile elle girebilirsin.</p>`;
+  return `<h2 class="sheet-title">Baskılar</h2>
+    <p class="muted">${list.length} baskı${turEditions(list).length ? `, ${turEditions(list).length} tanesi Türkçe` : ''}. Seçtiğin baskının adı, yayınevi, sayfa sayısı ve kapağı kullanılır.</p>
+    <ul class="results">${list.slice(0, 80).map((e, i) => `<li class="res ${e.key === cur ? 'cur' : ''}"><button class="res-main" data-act="ed-pick" data-i="${i}" data-key="${key}">
+      ${e.cover ? `<img class="res-img" src="${bookCoverUrl(e.cover, 'M')}" alt="" loading="lazy">` : `<div class="res-img noposter bgen" style="--bc:${authorColor(e.publisher)}"><b>${esc(e.title)}</b></div>`}
+      <span class="res-text"><b>${esc(e.title)}</b><small>${esc([e.publisher, e.year, e.pages ? e.pages + ' sayfa' : ''].filter(Boolean).join(' · '))}</small><em class="chip ${e.lang === 'tur' ? '' : 'dim'}">${esc(LANGS[e.lang] || (e.lang ? e.lang.toUpperCase() : 'Dil belirtilmemiş'))}${e.key === cur ? ' · seçili' : ''}</em></span>
+    </button></li>`).join('')}</ul>`;
+}
+function editHTML(key) {
+  const m = key ? (S.db.items[key] || metaOf(key)) : {};
+  return `<h2 class="sheet-title">${key ? 'Bilgileri düzenle' : 'Elle ekle'}</h2>
+    <p class="muted">${key ? 'Open Library\'deki ad ya da sayfa sayısı yanlışsa buradan düzelt.' : 'Open Library\'de bulunmayan kitabı kendin ekle. Kaydettikten sonra Okudum, Okuyorum ya da Okuyacağım diyebilirsin.'}</p>
+    <label class="note-l" for="bk-title">Kitap adı</label><input class="field" id="bk-title" value="${esc(m.title || '')}" autocomplete="off">
+    <label class="note-l" for="bk-author">Yazar</label><input class="field" id="bk-author" value="${esc(m.author || '')}" autocomplete="off">
+    <label class="note-l" for="bk-pub">Yayınevi</label><input class="field" id="bk-pub" value="${esc(m.publisher || '')}" autocomplete="off">
+    <label class="note-l" for="bk-pages">Sayfa sayısı</label><input class="field" id="bk-pages" type="number" inputmode="numeric" min="1" value="${m.pages || ''}">
+    <button class="btn-primary wide" data-act="bk-save" data-key="${key || ''}">${key ? 'Kaydet' : 'Ekle'}</button>`;
+}
+
 
 /* ---- Open Library ---- */
 async function olGet(path) {
@@ -167,6 +229,9 @@ function openBookDetail(key) {
   const w = openSheet(bookDetailHTML(m), 'detail book');
   w.dataset.key = key; w.dataset.book = '1';
   if (m.olKey && m.desc == null) bookDescription(m).then(d => { m.desc = d; const it = S.db.items[key]; if (it) it.desc = d; if (w.isConnected) setSheet(w, bookDetailHTML(m)); });
+  // Henüz baskı seçilmediyse Türkçe baskıyı ara ve öner
+  const src = S.db.items[key] || m;
+  if (src.olKey && !src.edKey && src.src !== '1000kitap') olEditions(src.olKey).then(list => { S.edHint = S.edHint || {}; S.edHint[key] = turEditions(list)[0] || null; if (w.isConnected) setSheet(w, bookDetailHTML(metaOf(key))); }).catch(() => {});
 }
 function bookDetailHTML(m) {
   const it = S.db.items[m.key], src = it || m;
@@ -185,6 +250,11 @@ function bookDetailHTML(m) {
       <div class="d-pills">${sc != null ? `<span class="pill mine mono">Senin ${sc}</span>` : ''}${it ? `<span class="pill">${STATUS_BOOK[it.status]}</span>` : ''}${it && it.liked ? `<span class="pill">${icon('heart')} 1000Kitap</span>` : ''}</div>
     </div>
   </div>
+  ${!src.edKey && S.edHint && S.edHint[m.key] ? (e => `<div class="ed-hint">
+    ${e.cover ? `<img src="${bookCoverUrl(e.cover, 'M')}" alt="" loading="lazy">` : ''}
+    <div><p class="eyebrow">Türkçe baskısı var</p><b>${esc(e.title)}</b><small>${esc([e.publisher, e.year, e.pages ? e.pages + ' sayfa' : ''].filter(Boolean).join(' · '))}</small>
+    <div class="row"><button class="btn-primary sm" data-act="ed-use" data-key="${m.key}">Bu baskıyı kullan</button><button class="btn-ghost sm" data-act="ed-open" data-key="${m.key}">Diğer baskılar</button></div></div>
+  </div>`)(S.edHint[m.key]) : ''}
   ${statusBar(src, it)}
   ${it && it.status === 'watching' ? pageBox(src, it) : ''}
   ${dates ? `<p class="d-dates mono">${esc(dates)}</p>` : ''}
@@ -196,7 +266,9 @@ function bookDetailHTML(m) {
     <div class="q-form"><textarea id="q-text" rows="2" maxlength="1200" placeholder="Altını çizdiğin satır"></textarea>
       <div class="row"><input id="q-page" type="number" inputmode="numeric" min="1" placeholder="Sayfa"><button class="btn-ghost sm" data-act="q-add" data-key="${m.key}">${icon('plus')}Alıntı ekle</button></div></div>` : ''}
   <div class="d-links">
-    ${src.olKey ? `<a class="btn-ghost" href="${OL}${src.olKey}" target="_blank" rel="noopener">${icon('external')}Open Library</a>` : ''}
+    ${src.olKey ? `<button class="btn-ghost" data-act="ed-open" data-key="${m.key}">${icon('stack')}Baskı seç</button>` : ''}
+    <button class="btn-ghost" data-act="bk-edit" data-key="${m.key}">${icon('pen')}Düzenle</button>
+    ${src.olKey ? `<a class="btn-ghost" href="${OL}${src.edKey || src.olKey}" target="_blank" rel="noopener">${icon('external')}Open Library</a>` : ''}
   </div>
   ${it ? `<button class="link danger" data-act="remove" data-key="${m.key}">${icon('trash')}Kitaplıktan kaldır</button><div class="confirm" id="rm-confirm" hidden><p>Bu kitap, puanı, notu ve alıntılarıyla birlikte silinecek.</p><div class="row"><button class="btn-ghost" data-act="remove-cancel">Vazgeç</button><button class="btn-danger" data-act="remove-yes" data-key="${m.key}">Sil</button></div></div>` : ''}`;
 }
@@ -416,4 +488,27 @@ const BOOK_ACT = {
   'q-del': el => { const it = S.db.items[el.dataset.key]; if (!it) return; const q = (it.quotes || []).slice(); q.splice(+el.dataset.i, 1); upsert(it, { quotes: q }); refreshDetails(); },
   'goal': el => { S.db.settings.bookGoal = Math.max(1, Math.min(200, bookGoal() + (+el.dataset.d))); save(); render(); },
   'copy-profile': () => copyProfile(),
+  'ed-use': el => { const e = S.edHint && S.edHint[el.dataset.key]; if (e) applyEdition(el.dataset.key, e); },
+  'ed-open': async el => {
+    const key = el.dataset.key, src = S.db.items[key] || metaOf(key); if (!src || !src.olKey) return;
+    const w = openSheet(`<div class="qd-load"><span class="dots"><i></i><i></i><i></i></span> Baskılar yükleniyor</div>`, 'editions');
+    try { const list = await olEditions(src.olKey); w._eds = list; if (w.isConnected) setSheet(w, editionsHTML(key, list)); }
+    catch { if (w.isConnected) setSheet(w, `<p class="empty-line">Baskılar yüklenemedi. İnternet bağlantını kontrol edip tekrar dene.</p>`); }
+  },
+  'ed-pick': el => { const w = el.closest('.sheet-wrap'), e = w._eds && w._eds[+el.dataset.i]; if (!e) return; closeSheet(w); applyEdition(el.dataset.key, e); },
+  'bk-edit': el => openSheet(editHTML(el.dataset.key), 'bk-edit'),
+  'bk-manual': () => openSheet(editHTML(''), 'bk-edit'),
+  'bk-save': el => {
+    const w = el.closest('.sheet-wrap'), v = id => ($('#' + id, w).value || '').trim();
+    const title = v('bk-title'), author = v('bk-author'), publisher = v('bk-pub'), pages = +v('bk-pages') || null;
+    if (!title) { toast('Kitap adını yaz.'); return; }
+    const key = el.dataset.key;
+    if (key) {
+      const patch = { title, author, publisher, pages }, it = S.db.items[key], m = S.meta.get(key);
+      if (m) Object.assign(m, patch); if (it) upsert(it, patch);
+      closeSheet(w); toast('Kaydedildi.'); refreshAll(); return;
+    }
+    const m = remember({ key: 'book:m-' + Date.now().toString(36), type: 'book', id: 'm-' + Date.now().toString(36), title, author, publisher, pages, cover: null, olKey: null, subjects: [], rich: true, manual: true });
+    closeSheet(w); openBookDetail(m.key);
+  },
 };

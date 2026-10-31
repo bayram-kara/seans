@@ -282,7 +282,7 @@ async function getDetails(type, id) {
 const metaOf = key => S.meta.get(key) || S.db.items[key] || null;
 
 /* ============ Arşiv kayıtları ============ */
-const ITEM_FIELDS = ['type', 'id', 'title', 'original', 'year', 'poster', 'backdrop', 'genres', 'people', 'cast', 'keywords', 'runtime', 'episodes', 'seasons', 'lang', 'vote', 'author', 'pages', 'cover', 'olKey', 'subjects'];
+const ITEM_FIELDS = ['type', 'id', 'title', 'original', 'year', 'poster', 'backdrop', 'genres', 'people', 'cast', 'keywords', 'runtime', 'episodes', 'seasons', 'lang', 'vote', 'author', 'pages', 'cover', 'olKey', 'subjects', 'publisher', 'edKey', 'edLang', 'manual'];
 function itemFields(m) {
   const o = {};
   for (const f of ITEM_FIELDS) if (m[f] !== undefined) o[f] = m[f];
@@ -933,7 +933,8 @@ function vSearchRes() {
   if (s.loading) return `<p class="muted pad">Aranıyor…</p>`;
   if (s.err) return `<div class="errbox">${icon('x')}<p>${s.err}</p></div>`;
   if (!s.q) return `<p class="empty-line">${mode() === 'book' ? 'Kitap adıyla, yazarla ya da ikisiyle birlikte arayabilirsin. Kaynak: Open Library.' : 'Türkçe ya da orijinal adıyla arayabilirsin.'}</p>`;
-  if (!s.res.length) return `<p class="empty-line">"${esc(s.q)}" için sonuç yok.</p>`;
+  const manual = mode() === 'book' ? `<button class="link center manual-add" data-act="bk-manual">${icon('plus')}Aradığın kitap yok mu? Elle ekle</button>` : '';
+  if (!s.res.length) return `<p class="empty-line">"${esc(s.q)}" için sonuç yok.</p>${manual}`;
   return `<ul class="results">${s.res.map(m => {
     const it = m.type === 'book' ? bookTwin(m) : S.db.items[m.key]; const sc = userScore(it); const key = it ? it.key : m.key;
     return `<li class="res">
@@ -942,7 +943,7 @@ function vSearchRes() {
       </button>
       ${it ? '' : `<div class="res-acts"><button class="btn-round" data-act="set-status" data-status="done" data-key="${m.key}" aria-label="${m.type === 'book' ? 'Okudum' : 'İzledim'}, puanla">${icon('check')}</button><button class="btn-round" data-act="set-status" data-status="want" data-key="${m.key}" aria-label="${stLabel(m.type, 'want')}">${icon('plus')}</button></div>`}
     </li>`;
-  }).join('')}</ul>`;
+  }).join('')}</ul>${manual}`;
 }
 let searchT, searchSeq = 0;
 function doSearch(q) {
@@ -1281,6 +1282,7 @@ function saveRating(w) {
   if (m.type === 'tv' && s.status === 'done') patch.progress = null;
   if (m.type === 'book' && s.status === 'done' && m.pages) patch.progress = { page: m.pages };
   upsert(m, patch);
+  if (m.type === 'book') autoTurkish(key);
   if (!wasDone && s.status === 'done' && S.recKeys.has(key)) S.db.meta.recWatched = (S.db.meta.recWatched || 0) + 1;
   S.db.settings.rateMode = s.mode; save();
   requestPersist();
@@ -1476,11 +1478,13 @@ function setStatus(key, status, fromEl) {
   } else if (status === 'watching' && m.type === 'book') {
     upsert(m, { status, progress: (it && it.progress && it.status === 'watching') ? it.progress : { page: 0 }, startedAt: (it && it.status === 'watching' && it.startedAt) || todayISO() });
     toast('Okuduklarına eklendi. Sayfa takibi Kitaplık\'ta.');
+    autoTurkish(m.key);
   } else if (status === 'watching') {
     upsert(m, { status, progress: (it && it.progress) || { s: 1, e: 1 } });
     toast('İzlediklerine eklendi. Bölüm takibi ana sayfada.');
   } else if (status === 'want') {
     upsert(m, { status }); toast(m.type === 'book' ? 'Okuyacaklarına eklendi.' : 'Listene eklendi.');
+    if (m.type === 'book') autoTurkish(m.key);
   } else if (status === 'dismissed') {
     upsert(m, { status }); toast('Tamam, bunu bir daha önermem.');
   }
